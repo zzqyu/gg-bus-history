@@ -1068,7 +1068,7 @@ export default function Home() {
                       </div>
                       {/* Badge row for filtering combined table by route */}
                       <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', overflowX: 'auto', padding: '6px 2px' }}>
-                        <button type="button" onClick={() => handleSelectAllGroupsRoute(null)} style={{ padding: '4px 8px', borderRadius: 9999, border: '1px solid #e5e7eb', background: allGroupsSelectedRouteId ? '#fff' : '#2563eb', color: allGroupsSelectedRouteId ? '#374151' : '#fff', fontWeight: 700 }}>All</button>
+                        <button type="button" onClick={() => handleSelectAllGroupsRoute(null)} style={{ padding: '4px 8px', borderRadius: 9999, border: '1px solid #e5e7eb', background: allGroupsSelectedRouteId ? '#fff' : '#2563eb', color: allGroupsSelectedRouteId ? '#374151' : '#fff', fontWeight: 700, whiteSpace: 'nowrap' }}>All</button>
                         {(() => {
                           const combined = (allGroupsTimetable.data && allGroupsTimetable.data.combined) || []
                           const seen = new Map()
@@ -1078,7 +1078,7 @@ export default function Home() {
                             seen.set(rid, { routeId: rid, routeName: e.routeName, routeTypeCd: e.routeTypeCd })
                           }
                           return Array.from(seen.values()).map((r) => (
-                            <button key={r.routeId} type="button" onClick={() => handleSelectAllGroupsRoute(r.routeId)} style={{ padding: '4px 8px', borderRadius: 9999, border: '1px solid #e5e7eb', background: String(allGroupsSelectedRouteId) === String(r.routeId) ? '#2563eb' : '#fff', color: String(allGroupsSelectedRouteId) === String(r.routeId) ? '#fff' : '#374151', fontWeight: 700 }}>{r.routeName}</button>
+                            <button key={r.routeId} type="button" onClick={() => handleSelectAllGroupsRoute(r.routeId)} style={{ padding: '4px 8px', borderRadius: 9999, border: '1px solid #e5e7eb', background: String(allGroupsSelectedRouteId) === String(r.routeId) ? '#2563eb' : '#fff', color: String(allGroupsSelectedRouteId) === String(r.routeId) ? '#fff' : '#374151', fontWeight: 700, whiteSpace: 'nowrap' }}>{r.routeName}</button>
                           ))
                         })()}
                       </div>
@@ -1204,7 +1204,7 @@ export default function Home() {
                                 // ignore
                               }
                             }}
-                            style={{ cursor: 'pointer', ...getRouteNameStyle(r.routeTypeCd, r.routeName), border: '1px solid #e5e7eb', borderRadius: 9999, padding: '2px 8px', fontSize: 12, background: '#fff', flex: '0 0 auto' }}
+                            style={{ cursor: 'pointer', ...getRouteNameStyle(r.routeTypeCd, r.routeName), border: '1px solid #e5e7eb', borderRadius: 9999, padding: '2px 8px', fontSize: 12, background: '#fff', flex: '0 0 auto', whiteSpace: 'nowrap' }}
                           >
                             {r.routeName}
                           </button>
@@ -1247,9 +1247,9 @@ export default function Home() {
                                   </div>
                                   {/* Badge row for group-level filter */}
                                   <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', overflowX: 'auto', padding: '6px 2px' }}>
-                                    <button type="button" onClick={(ev) => { ev.stopPropagation(); handleSelectGroupRoute(groupKey, g, null) }} style={{ padding: '4px 8px', borderRadius: 9999, border: '1px solid #e5e7eb', background: (gt && gt.selectedRouteId) ? '#fff' : '#2563eb', color: (gt && gt.selectedRouteId) ? '#374151' : '#fff', fontWeight: 700 }}>All</button>
+                                    <button type="button" onClick={(ev) => { ev.stopPropagation(); handleSelectGroupRoute(groupKey, g, null) }} style={{ padding: '4px 8px', borderRadius: 9999, border: '1px solid #e5e7eb', background: (gt && gt.selectedRouteId) ? '#fff' : '#2563eb', color: (gt && gt.selectedRouteId) ? '#374151' : '#fff', fontWeight: 700, whiteSpace: 'nowrap' }}>All</button>
                                     {getGroupRouteBadges(g).map((r) => (
-                                      <button key={r.routeId} type="button" onClick={(ev) => { ev.stopPropagation(); handleSelectGroupRoute(groupKey, g, r.routeId) }} style={{ padding: '4px 8px', borderRadius: 9999, border: '1px solid #e5e7eb', background: (gt && String(gt.selectedRouteId) === String(r.routeId)) ? '#2563eb' : '#fff', color: (gt && String(gt.selectedRouteId) === String(r.routeId)) ? '#fff' : '#374151', fontWeight: 700 }}>{r.routeName}</button>
+                                      <button key={r.routeId} type="button" onClick={(ev) => { ev.stopPropagation(); handleSelectGroupRoute(groupKey, g, r.routeId) }} style={{ padding: '4px 8px', borderRadius: 9999, border: '1px solid #e5e7eb', background: (gt && String(gt.selectedRouteId) === String(r.routeId)) ? '#2563eb' : '#fff', color: (gt && String(gt.selectedRouteId) === String(r.routeId)) ? '#fff' : '#374151', fontWeight: 700, whiteSpace: 'nowrap' }}>{r.routeName}</button>
                                     ))}
                                   </div>
                                 </div>
