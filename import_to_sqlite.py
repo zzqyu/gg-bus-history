@@ -349,7 +349,10 @@ def main():
             cur.execute('PRAGMA temp_store=FILE;')
             cur.execute('PRAGMA cache_size=-32768;')  # about 32MB cache
             cur.execute('PRAGMA mmap_size=0;')
+            # journal_mode PRAGMA returns a row; consume it to avoid
+            # "cannot commit transaction - SQL statements in progress".
             cur.execute('PRAGMA journal_mode=DELETE;')
+            _ = cur.fetchone()
             logging.info('Applied low-memory SQLite PRAGMAs')
         except Exception as e:
             logging.warning(f'Failed to apply low-memory PRAGMAs: {e}')
