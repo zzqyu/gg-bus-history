@@ -44,6 +44,22 @@ file_formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s %(message
 file_handler.setFormatter(file_formatter)
 logger.addHandler(file_handler)
 
+
+def get_db_connection(db_path: str = 'basedata.db'):
+    conn = sqlite3.connect(str(Path(db_path)), timeout=5)
+    conn.row_factory = sqlite3.Row
+    try:
+        cur = conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL;")
+        cur.execute("PRAGMA synchronous = NORMAL;")
+        cur.execute("PRAGMA temp_store = MEMORY;")
+        cur.execute("PRAGMA cache_size = -10000;")
+        cur.execute("PRAGMA mmap_size = 268435456;")
+        cur.execute("PRAGMA busy_timeout = 5000;")
+    except Exception as e:
+        logger.warning(f"get_db_connection: PRAGMA apply failed: {e}")
+    return conn
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -147,14 +163,159 @@ def fetch_past_arrivals(routeId, stationId, staOrder, sday_norm):
     return []
 
 
+def build_timetables_for_routes(routes, board_station_id: str, alight_station_id: str, sday_norm: str):
+    timetables = []
+
+    from datetime import datetime
+
+    def parse_time(s):
+        if not s:
+            return None
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M'):
+            try:
+                return datetime.strptime(s, fmt)
+            except Exception:
+                continue
+        return None
+
+    for r in routes or []:
+        rid = r.get('routeId')
+        if rid is None:
+            continue
+        try:
+            board_order = int(r.get('boardOrder'))
+            alight_order = int(r.get('alightOrder'))
+        except Exception:
+            continue
+
+        board_list = fetch_past_arrivals(rid, board_station_id, board_order, sday_norm)
+        alight_list = fetch_past_arrivals(rid, alight_station_id, alight_order, sday_norm)
+
+        def group_by_vid(lst):
+            d = {}
+            for e in lst:
+                if not isinstance(e, dict):
+                    continue
+                vid = e.get('vehId')
+                if not vid:
+                    continue
+                k = str(vid)
+                t = parse_time(e.get('arrivalDate') or e.get('depatureDate'))
+                d.setdefault(k, []).append((t, e))
+            for k in list(d.keys()):
+                d[k].sort(key=lambda x: (x[0] is None, x[0]))
+            return d
+
+        board_groups = group_by_vid(board_list)
+        alight_groups = group_by_vid(alight_list)
+
+        entries = []
+        max_trip_sec = 2 * 3600
+        for vid in [v for v in board_groups.keys() if v in alight_groups]:
+            b_seq = board_groups.get(vid, [])
+            a_seq = alight_groups.get(vid, [])
+            a_idx = 0
+
+            for bt, b in b_seq:
+                if bt is None:
+                    continue
+
+                while a_idx < len(a_seq):
+                    at0, _ = a_seq[a_idx]
+                    if at0 is None or at0 <= bt:
+                        a_idx += 1
+                        continue
+                    break
+
+                if a_idx >= len(a_seq):
+                    continue
+
+                best_idx = None
+                best_delta = None
+                probe = a_idx
+                while probe < len(a_seq):
+                    at, _ = a_seq[probe]
+                    if at is None:
+                        probe += 1
+                        continue
+                    delta = (at - bt).total_seconds()
+                    if delta <= 0:
+                        probe += 1
+                        continue
+                    if delta > max_trip_sec:
+                        break
+                    if best_delta is None or delta < best_delta:
+                        best_delta = delta
+                        best_idx = probe
+                    probe += 1
+
+                if best_idx is None:
+                    continue
+
+                at, a = a_seq[best_idx]
+                entries.append({
+                    'vehId': vid,
+                    'boardRunSeq': b.get('runSeq'),
+                    'alightRunSeq': a.get('runSeq'),
+                    'boardTime': b.get('arrivalDate') or b.get('depatureDate'),
+                    'alightTime': a.get('arrivalDate') or a.get('depatureDate')
+                })
+                a_idx = best_idx + 1
+
+        entries.sort(key=lambda x: x.get('boardTime') or '')
+        timetables.append({
+            'routeId': rid,
+            'routeName': r.get('routeName'),
+            'routeTypeCd': r.get('routeTypeCd'),
+            'boardOrder': board_order,
+            'alightOrder': alight_order,
+            'orderGap': int(alight_order) - int(board_order),
+            'entries': entries,
+        })
+
+    def parse_time_global(s):
+        if not s:
+            return None
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M'):
+            try:
+                return datetime.strptime(s, fmt)
+            except Exception:
+                continue
+        return None
+
+    combined = []
+    for t in timetables:
+        for e in t['entries']:
+            bt = parse_time_global(e.get('boardTime'))
+            combined.append({
+                'routeId': t.get('routeId'),
+                'routeName': t.get('routeName'),
+                'routeTypeCd': t.get('routeTypeCd'),
+                'vehId': e.get('vehId'),
+                'boardRunSeq': e.get('boardRunSeq'),
+                'alightRunSeq': e.get('alightRunSeq'),
+                'boardOrder': t.get('boardOrder'),
+                'alightOrder': t.get('alightOrder'),
+                'orderGap': t.get('orderGap'),
+                'boardTime': e.get('boardTime'),
+                'alightTime': e.get('alightTime'),
+                '_bt_parsed': bt
+            })
+    combined.sort(key=lambda x: (x['_bt_parsed'] is None, x['_bt_parsed']))
+    for c in combined:
+        if '_bt_parsed' in c:
+            del c['_bt_parsed']
+
+    return timetables, combined
+
+
 @app.get('/findRoutes')
 def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, aradius: int = None, bradius: int = None, sday: str = None, db_path: str = 'basedata.db', debug: bool = False):
     dbp = Path(db_path)
     if not dbp.exists():
         raise HTTPException(status_code=400, detail=f"DB not found: {db_path}")
 
-    conn = sqlite3.connect(str(dbp))
-    conn.row_factory = sqlite3.Row
+    conn = get_db_connection(str(dbp))
     cur = conn.cursor()
 
     start_radius = int(aradius) if aradius is not None else int(radius)
@@ -206,21 +367,49 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
         conn.close()
         return {'groups': [], 'nearA': near_a, 'nearB': near_b}
 
-    # Build groups by (boardStation, alightStation) with matching routes
+    # Build groups by (boardStation, alightStation) with matching routes.
+    # Performance optimization: fetch all A-set x B-set route pairs in one query
+    # then group in Python, instead of executing one SQL per station-pair.
     groups = []
-    pair_sql = """
-    SELECT r1.routeId, r1.routeName, rt.routeTypeCd, r1.upDown, CAST(r1.staOrder AS INTEGER) AS boardOrder, CAST(r2.staOrder AS INTEGER) AS alightOrder
-    FROM routestation r1
-    JOIN routestation r2 ON r1.routeId = r2.routeId
-    LEFT JOIN route rt ON r1.routeId = rt.routeId
-    WHERE r1.stationId = ? AND r2.stationId = ? AND CAST(r1.staOrder AS INTEGER) < CAST(r2.staOrder AS INTEGER)
-    LIMIT 500
-    """
+    a_ids = [str(s.get('stationId')) for s in near_a]
+    b_ids = [str(s.get('stationId')) for s in near_b]
 
-    for sa in near_a:
-        for sb in near_b:
-            cur.execute(pair_sql, (sa['stationId'], sb['stationId']))
-            rows = [dict(r) for r in cur.fetchall()]
+    _pair_sql_count = 0
+    _pair_sql_total_ms = 0.0
+    _pair_sql_slowest = []
+
+    if a_ids and b_ids:
+        a_ph = ','.join(['?'] * len(a_ids))
+        b_ph = ','.join(['?'] * len(b_ids))
+        pair_sql = f"""
+        SELECT r1.stationId AS boardStationId, r2.stationId AS alightStationId,
+               r1.routeId, r1.routeName, rt.routeTypeCd, r1.upDown,
+               CAST(r1.staOrder AS INTEGER) AS boardOrder, CAST(r2.staOrder AS INTEGER) AS alightOrder
+        FROM routestation r1
+        JOIN routestation r2 ON r1.routeId = r2.routeId
+        LEFT JOIN route rt ON r1.routeId = rt.routeId
+        WHERE r1.stationId IN ({a_ph})
+          AND r2.stationId IN ({b_ph})
+          AND CAST(r1.staOrder AS INTEGER) < CAST(r2.staOrder AS INTEGER)
+        LIMIT 20000
+        """
+        t0 = time.time()
+        cur.execute(pair_sql, a_ids + b_ids)
+        all_rows = [dict(r) for r in cur.fetchall()]
+        elapsed_ms = (time.time() - t0) * 1000.0
+        _pair_sql_count = 1
+        _pair_sql_total_ms = elapsed_ms
+        _pair_sql_slowest = [(elapsed_ms, 'BATCH', 'BATCH', len(all_rows))]
+
+        pair_map = {}
+        for row in all_rows:
+            key = (str(row.get('boardStationId') or ''), str(row.get('alightStationId') or ''))
+            pair_map.setdefault(key, []).append(row)
+
+        a_map = {str(s.get('stationId')): s for s in near_a}
+        b_map = {str(s.get('stationId')): s for s in near_b}
+
+        for (board_sid, alight_sid), rows in pair_map.items():
             rows = select_best_order_pair_per_route(rows)
             if not rows:
                 continue
@@ -234,7 +423,7 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
                     'routeId': r['routeId'],
                     'routeName': r['routeName'],
                     'routeTypeCd': r.get('routeTypeCd'),
-                    'upDown': r['upDown'],
+                    'upDown': r.get('upDown'),
                     'boardOrder': r['boardOrder'],
                     'alightOrder': r['alightOrder'],
                     'orderGap': gap,
@@ -242,8 +431,12 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
                 route_ids.add(r['routeId'])
                 order_gap_score += gap
 
-            score = float(sa.get('dist', 1e9)) + float(sb.get('dist', 1e9))
+            sa = a_map.get(board_sid)
+            sb = b_map.get(alight_sid)
+            if not sa or not sb:
+                continue
 
+            score = float(sa.get('dist', 1e9)) + float(sb.get('dist', 1e9))
             groups.append({
                 'board': {
                     'stationId': sa['stationId'],
@@ -264,6 +457,11 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
                 'orderGapScore': order_gap_score,
                 'score': score,
             })
+
+    if _pair_sql_count:
+        avg_ms = _pair_sql_total_ms / float(_pair_sql_count)
+        top = sorted(_pair_sql_slowest, key=lambda x: x[0], reverse=True)[:5]
+        logger.info(f"find_routes: pair_sql executed {_pair_sql_count} times avg={avg_ms:.1f}ms top={[(round(x[0],1), x[1], x[2], x[3]) for x in top]}")
 
     # Per-route station-pair selection rule:
     # 1) valid forward pairs only (already ensured by boardOrder < alightOrder)
@@ -440,8 +638,7 @@ def group_timetable(boardStationId: str, alightStationId: str, routeId: str = No
     dbp = Path('basedata.db')
     if not dbp.exists():
         raise HTTPException(status_code=400, detail='DB not found: basedata.db')
-    conn = sqlite3.connect(str(dbp))
-    conn.row_factory = sqlite3.Row
+    conn = get_db_connection(str(dbp))
     cur = conn.cursor()
 
     pair_sql = """
@@ -468,150 +665,8 @@ def group_timetable(boardStationId: str, alightStationId: str, routeId: str = No
         conn.close()
         return {'routes': [], 'timetables': []}
 
-    timetables = []
-    # helper to parse times for sorting when building combined timetable
-    from datetime import datetime
-    def parse_time_global(s):
-        if not s:
-            return None
-        for fmt in ('%Y-%m-%d %H:%M:%S','%Y-%m-%d %H:%M'):
-            try:
-                return datetime.strptime(s, fmt)
-            except Exception:
-                continue
-        return None
-    for r in routes:
-        rid = r['routeId']
-        boardOrder = r['boardOrder']
-        alightOrder = r['alightOrder']
-        board_list = fetch_past_arrivals(rid, boardStationId, boardOrder, sday_norm)
-        alight_list = fetch_past_arrivals(rid, alightStationId, alightOrder, sday_norm)
-
-        # Group entries by vehicle id and sort by time to pair multiple runs per vehicle
-        from datetime import datetime
-        def parse_time(s):
-            if not s:
-                return None
-            for fmt in ('%Y-%m-%d %H:%M:%S','%Y-%m-%d %H:%M'):
-                try:
-                    return datetime.strptime(s, fmt)
-                except Exception:
-                    continue
-            return None
-
-        def group_by_vid(lst):
-            d = {}
-            for e in lst:
-                # be defensive: some API results may include non-dict entries
-                if not isinstance(e, dict):
-                    continue
-                vid = e.get('vehId')
-                if not vid:
-                    continue
-                k = str(vid)
-                t = parse_time(e.get('arrivalDate') or e.get('depatureDate'))
-                d.setdefault(k, []).append((t, e))
-            for k in list(d.keys()):
-                d[k].sort(key=lambda x: (x[0] is None, x[0]))
-            return d
-
-        board_groups = group_by_vid(board_list)
-        alight_groups = group_by_vid(alight_list)
-
-        entries = []
-        # Pair runs per vehicle by nearest future alight event (monotonic greedy).
-        # This avoids matching to a loop-return alight several cycles later.
-        MAX_TRIP_SEC = 2 * 3600
-        for vid in [v for v in board_groups.keys() if v in alight_groups]:
-            b_seq = board_groups.get(vid, [])
-            a_seq = alight_groups.get(vid, [])
-            a_idx = 0
-
-            for bt, b in b_seq:
-                if bt is None:
-                    continue
-
-                while a_idx < len(a_seq):
-                    at0, _ = a_seq[a_idx]
-                    if at0 is None or at0 <= bt:
-                        a_idx += 1
-                        continue
-                    break
-
-                if a_idx >= len(a_seq):
-                    continue
-
-                best_idx = None
-                best_delta = None
-                probe = a_idx
-                while probe < len(a_seq):
-                    at, _ = a_seq[probe]
-                    if at is None:
-                        probe += 1
-                        continue
-                    delta = (at - bt).total_seconds()
-                    if delta <= 0:
-                        probe += 1
-                        continue
-                    if delta > MAX_TRIP_SEC:
-                        break
-                    if best_delta is None or delta < best_delta:
-                        best_delta = delta
-                        best_idx = probe
-                    probe += 1
-
-                if best_idx is None:
-                    continue
-
-                at, a = a_seq[best_idx]
-                entries.append({
-                    'vehId': vid,
-                    'boardRunSeq': b.get('runSeq'),
-                    'alightRunSeq': a.get('runSeq'),
-                    'boardTime': b.get('arrivalDate') or b.get('depatureDate'),
-                    'alightTime': a.get('arrivalDate') or a.get('depatureDate')
-                })
-                a_idx = best_idx + 1
-
-        # Strict policy: keep only same-vehId matches.
-        # Do not fallback-match board/alight across different vehicles.
-
-        entries.sort(key=lambda x: x['boardTime'])
-        timetables.append({
-            'routeId': rid,
-            'routeName': r.get('routeName'),
-            'routeTypeCd': r.get('routeTypeCd'),
-            'boardOrder': boardOrder,
-            'alightOrder': alightOrder,
-            'orderGap': int(alightOrder) - int(boardOrder),
-            'entries': entries,
-        })
-
+    timetables, combined = build_timetables_for_routes(routes, str(boardStationId), str(alightStationId), sday_norm)
     conn.close()
-    # Build a combined timetable across all routes in this group, sorted by boardTime
-    combined = []
-    for t in timetables:
-        for e in t['entries']:
-            bt = parse_time_global(e.get('boardTime'))
-            combined.append({
-                'routeId': t.get('routeId'),
-                'routeName': t.get('routeName'),
-                'routeTypeCd': t.get('routeTypeCd'),
-                'vehId': e.get('vehId'),
-                'boardRunSeq': e.get('boardRunSeq'),
-                'alightRunSeq': e.get('alightRunSeq'),
-                'boardOrder': t.get('boardOrder'),
-                'alightOrder': t.get('alightOrder'),
-                'orderGap': t.get('orderGap'),
-                'boardTime': e.get('boardTime'),
-                'alightTime': e.get('alightTime'),
-                '_bt_parsed': bt
-            })
-    combined.sort(key=lambda x: (x['_bt_parsed'] is None, x['_bt_parsed']))
-    # strip helper parsed key
-    for c in combined:
-        if '_bt_parsed' in c:
-            del c['_bt_parsed']
 
     out = {'routes': routes, 'timetables': timetables, 'combined': combined}
     cache_set(group_cache_key, out)
@@ -679,28 +734,25 @@ def all_groups_timetable(ax: float, ay: float, bx: float, by: float, radius: int
     group_results = []
     combined = []
 
+    group_tt_cache = {}
+
     for g in groups:
         board = g.get('board') or {}
         alight = g.get('alight') or {}
         board_station_id = str(board.get('stationId'))
         alight_station_id = str(alight.get('stationId'))
-        allowed_route_ids = {str(r.get('routeId')) for r in (g.get('routes') or []) if r.get('routeId') is not None}
+        gt_routes = g.get('routes') or []
+        route_sig = tuple(sorted(
+            (str(r.get('routeId') or ''), str(r.get('boardOrder') or ''), str(r.get('alightOrder') or ''))
+            for r in gt_routes
+        ))
+        tt_key = (board_station_id, alight_station_id, route_sig, sday_norm)
 
-        gt = group_timetable(
-            boardStationId=board_station_id,
-            alightStationId=alight_station_id,
-            routeId=None,
-            sday=sday_norm,
-        )
-
-        if allowed_route_ids:
-            gt_routes = [x for x in (gt.get('routes') or []) if str(x.get('routeId')) in allowed_route_ids]
-            gt_timetables = [x for x in (gt.get('timetables') or []) if str(x.get('routeId')) in allowed_route_ids]
-            gt_combined = [x for x in (gt.get('combined') or []) if str(x.get('routeId')) in allowed_route_ids]
+        if tt_key in group_tt_cache:
+            gt_timetables, gt_combined = group_tt_cache[tt_key]
         else:
-            gt_routes = gt.get('routes') or []
-            gt_timetables = gt.get('timetables') or []
-            gt_combined = gt.get('combined') or []
+            gt_timetables, gt_combined = build_timetables_for_routes(gt_routes, board_station_id, alight_station_id, sday_norm)
+            group_tt_cache[tt_key] = (gt_timetables, gt_combined)
 
         group_results.append({
             'board': board,
