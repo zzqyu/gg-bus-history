@@ -1,0 +1,26 @@
+version: '3.8'
+services:
+  api:
+    build:
+      context: ./api
+    volumes:
+      - ./basedata:/data:ro
+      - ./basedata.db:/app/basedata.db:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    ports:
+      - '8000:8000'
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    env_file:
+      - .env.local
+    environment:
+      - NEXT_PUBLIC_API_BASE=http://localhost:8000
+    ports:
+      - '3000:3000'
+    depends_on:
+      - api
+    # No host bind for web to preserve installed node_modules in image
