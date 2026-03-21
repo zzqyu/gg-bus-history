@@ -1,0 +1,15 @@
+.git
+.gitignore
+.next
+node_modules
+basedata
+basedata.db
+*.db
+*.sqlite
+*.sqlite3
+*.log
+README_*.md
+__pycache__/
+*.pyc
+.vscode/
+.DS_Store

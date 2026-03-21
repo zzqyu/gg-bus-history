@@ -27,6 +27,30 @@ docker compose logs -f web
 docker compose down
 ```
 
+### 웹 포트(테스트/배포) 설정
+현재 `docker-compose.yml`은 웹 포트를 `${WEB_PORT:-3000}`으로 읽습니다.
+
+- 테스트(기본): 3000 포트
+- 배포: 80 포트
+
+```bash
+# 테스트: 기본 3000
+docker-compose up --build
+
+# 배포: 80으로 노출
+WEB_PORT=80 docker-compose up --build
+```
+
+중요:
+- `.env.local`은 주로 컨테이너 내부 환경변수(`env_file`)용입니다.
+- Compose 파일의 `${WEB_PORT}` 치환은 `.env.local`이 아니라 **셸 변수** 또는 프로젝트 루트의 **`.env` 파일**을 사용합니다.
+
+```bash
+# 프로젝트 루트 .env 사용 예시
+echo 'WEB_PORT=80' > .env
+docker-compose up --build
+```
+
 ## 3) 성능/정상 동작 검증 명령
 `findRoutes` 응답시간:
 
