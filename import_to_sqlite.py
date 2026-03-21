@@ -20,10 +20,16 @@ import argparse
 import sqlite3
 import sys
 import logging
+from typing import Optional
 import urllib.request
 import json
 import os
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
+
+try:
+    import resource
+except Exception:  # pragma: no cover
+    resource = None
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 
@@ -67,7 +73,7 @@ def load_env_local(path: str = '.env.local'):
         return
 
 
-def build_baseinfo_url(base_url: str, service_key: str | None):
+def build_baseinfo_url(base_url: str, service_key: Optional[str]):
     """Return a full baseinfo URL with serviceKey and format=json merged into query."""
     parsed = urlparse(base_url)
     qlist = parse_qsl(parsed.query, keep_blank_values=True)
@@ -197,18 +203,57 @@ def rename_db_tables(conn: sqlite3.Connection):
     conn.commit()
 
 
-def process_file(path: Path, conn: sqlite3.Connection):
-    text = path.read_text(encoding='utf-8')
-    if not text:
-        logging.info(f"Skipping empty file: {path.name}")
+def set_process_memory_limit(memory_limit_mb: int):
+    """Set process virtual memory limit on Unix-like systems.
+    Helps fail-fast instead of OOM-killing the whole VPS.
+    """
+    if memory_limit_mb <= 0:
         return
+    if resource is None:
+        logging.info('resource module not available; skipping memory limit')
+        return
+    try:
+        limit_bytes = int(memory_limit_mb) * 1024 * 1024
+        resource.setrlimit(resource.RLIMIT_AS, (limit_bytes, limit_bytes))
+        logging.info(f"Applied process memory limit: {memory_limit_mb} MB")
+    except Exception as e:
+        logging.warning(f"Failed to apply memory limit ({memory_limit_mb} MB): {e}")
 
-    parts = [p for p in text.split('^') if p.strip() != '']
-    if not parts:
+
+def iter_caret_rows(path: Path, read_chunk_chars: int = 1024 * 1024):
+    """Yield '^'-separated rows from file without loading entire file into memory."""
+    with path.open('r', encoding='utf-8', errors='replace') as f:
+        buf = ''
+        while True:
+            chunk = f.read(read_chunk_chars)
+            if not chunk:
+                break
+            buf += chunk
+            parts = buf.split('^')
+            buf = parts.pop() if parts else ''
+            for p in parts:
+                row = p.strip()
+                if row:
+                    yield row
+
+        tail = buf.strip()
+        if tail:
+            yield tail
+
+
+def process_file(path: Path, conn: sqlite3.Connection, batch_size: int = 2000, read_chunk_chars: int = 1024 * 1024):
+    rows_iter = iter_caret_rows(path, read_chunk_chars=read_chunk_chars)
+
+    try:
+        header_line = next(rows_iter)
+    except StopIteration:
         logging.info(f"No rows found in {path.name}")
         return
 
-    header_line = parts[0].strip()
+    if not header_line:
+        logging.info(f"Skipping empty file: {path.name}")
+        return
+
     headers = [h.strip() for h in header_line.split('|')]
     headers = [sanitize_identifier(h) for h in headers]
 
@@ -226,9 +271,9 @@ def process_file(path: Path, conn: sqlite3.Connection):
     column_list = ', '.join([f'"{h}"' for h in headers])
     insert_sql = f'INSERT INTO "{table}" ({column_list}) VALUES ({placeholders})'
 
-    data_rows = parts[1:]
     to_insert = []
-    for row in data_rows:
+    inserted = 0
+    for row in rows_iter:
         vals = [v.strip() for v in row.split('|')]
         # pad or trim to match headers
         if len(vals) < len(headers):
@@ -237,10 +282,19 @@ def process_file(path: Path, conn: sqlite3.Connection):
             vals = vals[:len(headers)]
         to_insert.append(tuple(vals))
 
+        if len(to_insert) >= batch_size:
+            cur.executemany(insert_sql, to_insert)
+            conn.commit()
+            inserted += len(to_insert)
+            to_insert = []
+
     if to_insert:
         cur.executemany(insert_sql, to_insert)
         conn.commit()
-        logging.info(f"Imported {len(to_insert)} rows into table '{table}' from {path.name}")
+        inserted += len(to_insert)
+
+    if inserted > 0:
+        logging.info(f"Imported {inserted} rows into table '{table}' from {path.name}")
     else:
         logging.info(f"No data rows to insert for {path.name}")
 
@@ -256,7 +310,20 @@ def main():
     p.add_argument('--overwrite', action='store_true', help='Overwrite existing downloaded files')
     p.add_argument('--list-downloads', action='store_true', help='List downloaded files in --dir and exit')
     p.add_argument('--rename-db-tables', action='store_true', help='Rename existing DB tables by stripping trailing yyyymmdd* suffixes')
+    p.add_argument('--batch-size', type=int, default=2000, help='Rows per SQLite executemany batch (default: 2000)')
+    p.add_argument('--read-chunk-chars', type=int, default=1024 * 1024, help='Chunk size for streaming parser (default: 1048576)')
+    p.add_argument('--low-memory', action='store_true', help='Apply conservative SQLite memory PRAGMAs')
+    p.add_argument('--memory-limit-mb', type=int, default=0, help='Optional process memory cap in MB (Linux/Unix only)')
     args = p.parse_args()
+
+    if args.batch_size <= 0:
+        logging.error('--batch-size must be > 0')
+        sys.exit(1)
+    if args.read_chunk_chars <= 0:
+        logging.error('--read-chunk-chars must be > 0')
+        sys.exit(1)
+
+    set_process_memory_limit(args.memory_limit_mb)
 
     # load .env.local if present (to pick up BASEINFO_SERVICE_KEY)
     load_env_local('.env.local')
@@ -275,6 +342,17 @@ def main():
 
     db_path = Path(args.db)
     conn = sqlite3.connect(str(db_path))
+
+    if args.low_memory:
+        try:
+            cur = conn.cursor()
+            cur.execute('PRAGMA temp_store=FILE;')
+            cur.execute('PRAGMA cache_size=-32768;')  # about 32MB cache
+            cur.execute('PRAGMA mmap_size=0;')
+            cur.execute('PRAGMA journal_mode=DELETE;')
+            logging.info('Applied low-memory SQLite PRAGMAs')
+        except Exception as e:
+            logging.warning(f'Failed to apply low-memory PRAGMAs: {e}')
 
     # Optionally fetch baseinfo JSON and download files
     if args.fetch_baseinfo:
@@ -331,7 +409,7 @@ def main():
 
     for f in files:
         try:
-            process_file(f, conn)
+            process_file(f, conn, batch_size=args.batch_size, read_chunk_chars=args.read_chunk_chars)
         except Exception as e:
             logging.error(f"Error processing {f.name}: {e}")
 
