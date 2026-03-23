@@ -1,3 +1,4 @@
+import Head from 'next/head'
 import { useEffect, useRef, useState } from 'react'
 
 export default function Home() {
@@ -909,9 +910,13 @@ export default function Home() {
 
   return (
     <div className="p-5 font-sans text-[80%] text-slate-900 sm:text-[100%]">
-      <h2 className="text-xl font-semibold mb-3">버스 경로/시간이력 조회</h2>
+      <Head>
+        <title>버스탈시간-경기도 버스 시간 이력 조회 서비스</title>
+      </Head>
+      <h1 className="text-2xl font-bold">버스탈시간</h1>
+      <h3 className="text-l font-semibold mb-3">경기도 버스 시간 이력 조회 서비스</h3>
       <div className="mb-3 max-w-[900px] rounded-lg border border-slate-300 p-3">
-        <div className="mb-2 flex items-stretch gap-2">
+        <div className="mb-2 flex items-stretch">
           <button
             className="w-10 shrink-0 rounded border border-slate-300 text-lg hover:bg-slate-50"
             type="button"
@@ -1013,9 +1018,6 @@ export default function Home() {
             <button className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50" style={sday === quickDay2 ? { backgroundColor: '#e8f0ff' } : undefined} type="button" onClick={() => setQuickDay(2)}>2일전</button>
             <button className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50" style={sday === quickDay7 ? { backgroundColor: '#e8f0ff' } : undefined} type="button" onClick={() => setQuickDay(7)}>1주전</button>
           </div>
-        </div>
-        <div className="text-sm text-slate-500">
-          날짜를 선택하지 않아도 검색은 가능하며, 이 경우 탑승/하차 정류장 및 노선 정보만 확인할 수 있습니다.
         </div>
         <div>
           <button
