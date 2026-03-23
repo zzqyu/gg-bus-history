@@ -1,3 +1,4 @@
+import Head from 'next/head'
 import { useEffect, useRef, useState } from 'react'
 
 export default function Home() {
@@ -46,6 +47,22 @@ export default function Home() {
   const routeBadgeRowRefs = useRef({})
   const defaultMapCenter = { lon: 127.053749, lat: 37.289522 }
 
+  function compareRoutes(a, b) {
+    const na = String((a && (a.routeName || a.routeId)) || '')
+    const nb = String((b && (b.routeName || b.routeId)) || '')
+    const ma = na.match(/\d+/)
+    const mb = nb.match(/\d+/)
+    if (ma && mb) {
+      const va = Number(ma[0])
+      const vb = Number(mb[0])
+      if (va !== vb) return va - vb
+      return na.localeCompare(nb, undefined, { numeric: true, sensitivity: 'base' })
+    }
+    if (ma && !mb) return -1
+    if (!ma && mb) return 1
+    return na.localeCompare(nb, undefined, { sensitivity: 'base' })
+  }
+
   function getGroupKey(g) {
     return g.board.stationId + '-' + g.alight.stationId
   }
@@ -61,6 +78,7 @@ export default function Home() {
       seen.add(key)
       out.push({ routeId, routeName, routeTypeCd: r.routeTypeCd })
     }
+    out.sort(compareRoutes)
     return out
   }
 
@@ -547,10 +565,16 @@ export default function Home() {
 
   async function submit(e) {
     e.preventDefault()
-    const startLng = parseCoordValue(ax)
-    const startLat = parseCoordValue(ay)
-    const endLng = parseCoordValue(bx)
-    const endLat = parseCoordValue(by)
+    e.preventDefault()
+    await doSearch({ ax, ay, bx, by, aradius: startRadius, bradius: endRadius, sday })
+  }
+
+  async function doSearch(opts) {
+    const { ax: axv, ay: ayv, bx: bxv, by: byv, aradius, bradius, sday: qsday } = opts || {}
+    const startLng = parseCoordValue(axv)
+    const startLat = parseCoordValue(ayv)
+    const endLng = parseCoordValue(bxv)
+    const endLat = parseCoordValue(byv)
     if ([startLng, startLat, endLng, endLat].some((v) => Number.isNaN(v))) {
       setResult({ error: '출발지와 도착지를 먼저 선택하세요.' })
       return
@@ -558,8 +582,8 @@ export default function Home() {
     setResult({ loading: true })
     resetTimetableViews()
     const base = getApiBaseUrl()
-    const params = { ax, ay, bx, by, aradius: startRadius, bradius: endRadius }
-    if (sday) params.sday = sday
+    const params = { ax: axv, ay: ayv, bx: bxv, by: byv, aradius: aradius || startRadius, bradius: bradius || endRadius }
+    if (qsday) params.sday = qsday
     const q = new URLSearchParams(params)
     const r = await fetch((base ? base : '') + '/findRoutes?' + q.toString())
     const j = await r.json()
@@ -900,6 +924,88 @@ export default function Home() {
     }
   }
 
+  function buildShareUrl() {
+    try {
+      const params = new URLSearchParams()
+      if (ax) params.set('ax', ax)
+      if (ay) params.set('ay', ay)
+      if (bx) params.set('bx', bx)
+      if (by) params.set('by', by)
+      if (startRadius) params.set('aradius', startRadius)
+      if (endRadius) params.set('bradius', endRadius)
+      if (sday) params.set('sday', sday)
+      if (startKeyword) params.set('sk', startKeyword)
+      if (endKeyword) params.set('ek', endKeyword)
+      const base = (typeof window !== 'undefined' && window.location) ? window.location.origin + window.location.pathname : ''
+      const qs = params.toString()
+      return qs ? `${base}?${qs}` : base
+    } catch (e) {
+      return ''
+    }
+  }
+
+  async function handleShare() {
+    const url = buildShareUrl()
+    if (!url) {
+      alert('공유 가능한 URL을 생성할 수 없습니다.')
+      return
+    }
+    try {
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({ title: '버스탈시간 검색 결과', text: '검색 결과를 공유합니다.', url })
+        return
+      }
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(url)
+        alert('공유 링크를 클립보드에 복사했습니다.')
+        return
+      }
+      // Fallback to prompt
+      // eslint-disable-next-line no-alert
+      prompt('아래 링크를 복사하세요:', url)
+    } catch (err) {
+      // eslint-disable-next-line no-alert
+      alert('공유에 실패했습니다.')
+    }
+  }
+
+  // On first load, parse query params and apply to state; then auto-search if coordinates present.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const qs = window.location.search
+    if (!qs) return
+    try {
+      const params = new URLSearchParams(qs)
+      const qAx = params.get('ax') || ''
+      const qAy = params.get('ay') || ''
+      const qBx = params.get('bx') || ''
+      const qBy = params.get('by') || ''
+      const qar = params.get('aradius') || params.get('sr') || ''
+      const qbr = params.get('bradius') || params.get('er') || ''
+      const qsday = params.get('sday') || params.get('d') || ''
+      const qsk = params.get('sk') || ''
+      const qek = params.get('ek') || ''
+
+      let needSearch = false
+      if (qAx) { setAx(qAx); needSearch = true }
+      if (qAy) { setAy(qAy); needSearch = true }
+      if (qBx) { setBx(qBx); needSearch = true }
+      if (qBy) { setBy(qBy); needSearch = true }
+      if (qar) setStartRadius(qar)
+      if (qbr) setEndRadius(qbr)
+      if (qsday) setSday(qsday)
+      if (qsk) setStartKeyword(qsk)
+      if (qek) setEndKeyword(qek)
+
+      if (needSearch) {
+        const opts = { ax: qAx, ay: qAy, bx: qBx, by: qBy, aradius: qar || startRadius, bradius: qbr || endRadius, sday: qsday }
+        setTimeout(() => { doSearch(opts).catch(() => {}) }, 50)
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [])
+
   const showStartSearchPanel = startSearchOpened
   const showEndSearchPanel = endSearchOpened
   const showSearchPanels = showStartSearchPanel || showEndSearchPanel
@@ -909,9 +1015,13 @@ export default function Home() {
 
   return (
     <div className="p-5 font-sans text-[80%] text-slate-900 sm:text-[100%]">
-      <h2 className="text-xl font-semibold mb-3">버스 경로/시간이력 조회</h2>
+      <Head>
+        <title>버스탈시간-경기도 버스 시간 이력 조회 서비스</title>
+      </Head>
+      <h1 className="text-2xl font-bold">버스탈시간</h1>
+      <h3 className="text-l font-semibold mb-3">경기도 버스 시간 이력 조회 서비스</h3>
       <div className="mb-3 max-w-[900px] rounded-lg border border-slate-300 p-3">
-        <div className="mb-2 flex items-stretch gap-2">
+        <div className="mb-2 flex items-stretch">
           <button
             className="w-10 shrink-0 rounded border border-slate-300 text-lg hover:bg-slate-50"
             type="button"
@@ -923,11 +1033,11 @@ export default function Home() {
           </button>
           <div className="flex min-w-0 flex-1 flex-col gap-2">
             <div className="flex items-center">
-              <input className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1" value={startKeyword} onChange={(e) => setStartKeyword(e.target.value)} onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'start')} placeholder="출발지 검색" />
+              <input className="min-w-0 h-9 flex-1 rounded border border-slate-300 px-2 py-1" value={startKeyword} onChange={(e) => setStartKeyword(e.target.value)} onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'start')} placeholder="출발지 검색" />
               <button className="h-9 w-9 shrink-0 rounded border border-slate-300 text-base hover:bg-slate-50" type="button" onClick={() => searchPlace('start')} aria-label="출발지 찾기" title="출발지 찾기">🔍</button>
             </div>
             <div className="flex items-center">
-              <input className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1" value={endKeyword} onChange={(e) => setEndKeyword(e.target.value)} onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'end')} placeholder="도착지 검색" />
+              <input className="min-w-0 h-9 flex-1 rounded border border-slate-300 px-2 py-1" value={endKeyword} onChange={(e) => setEndKeyword(e.target.value)} onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'end')} placeholder="도착지 검색" />
               <button className="h-9 w-9 shrink-0 rounded border border-slate-300 text-base hover:bg-slate-50" type="button" onClick={() => searchPlace('end')} aria-label="도착지 찾기" title="도착지 찾기">🔍</button>
             </div>
           </div>
@@ -1014,9 +1124,6 @@ export default function Home() {
             <button className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50" style={sday === quickDay7 ? { backgroundColor: '#e8f0ff' } : undefined} type="button" onClick={() => setQuickDay(7)}>1주전</button>
           </div>
         </div>
-        <div className="text-sm text-slate-500">
-          날짜를 선택하지 않아도 검색은 가능하며, 이 경우 탑승/하차 정류장 및 노선 정보만 확인할 수 있습니다.
-        </div>
         <div>
           <button
             type="submit"
@@ -1033,8 +1140,25 @@ export default function Home() {
         ) : result.error ? (
           <div style={{ color: 'red' }}>{result.error}</div>
         ) : (
-          <div>
-            <h3>검색 결과: {(result.groups || []).length}</h3>
+          <div className="max-w-[900px]">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12 }}>
+              <h3 style={{ margin: 0 }}>검색 결과: {(result.groups || []).length}</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={handleShare}
+                  title="검색 결과 공유"
+                  aria-label="검색 결과 공유"
+                  className="h-8 w-8 rounded border border-slate-300 bg-white flex items-center justify-center hover:bg-slate-50"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 5v14"></path>
+                    <path d="M5 12l7-7 7 7"></path>
+                    <rect x="5" y="19" width="14" height="2" rx="1"></rect>
+                  </svg>
+                </button>
+              </div>
+            </div>
             <div style={{ marginBottom: 12 }}>
               <button className="rounded border border-slate-300 bg-white px-2 py-1 text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" onClick={fetchAllGroupsTimetable} disabled={!sday}>모든 결과 통합 시간이력</button>
               {!sday ? <span style={{ marginLeft: 8, color: '#666' }}>날짜를 선택하세요.</span> : null}
@@ -1077,7 +1201,9 @@ export default function Home() {
                             if (!rid || seen.has(rid)) continue
                             seen.set(rid, { routeId: rid, routeName: e.routeName, routeTypeCd: e.routeTypeCd })
                           }
-                          return Array.from(seen.values()).map((r) => (
+                          const arr = Array.from(seen.values())
+                          arr.sort(compareRoutes)
+                          return arr.map((r) => (
                             <button key={r.routeId} type="button" onClick={() => handleSelectAllGroupsRoute(r.routeId)} style={{ padding: '4px 8px', borderRadius: 9999, border: '1px solid #e5e7eb', background: String(allGroupsSelectedRouteId) === String(r.routeId) ? '#2563eb' : '#fff', color: String(allGroupsSelectedRouteId) === String(r.routeId) ? '#fff' : '#374151', fontWeight: 700, whiteSpace: 'nowrap' }}>{r.routeName}</button>
                           ))
                         })()}
