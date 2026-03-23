@@ -928,11 +928,11 @@ export default function Home() {
           </button>
           <div className="flex min-w-0 flex-1 flex-col gap-2">
             <div className="flex items-center">
-              <input className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1" value={startKeyword} onChange={(e) => setStartKeyword(e.target.value)} onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'start')} placeholder="출발지 검색" />
+              <input className="min-w-0 h-9 flex-1 rounded border border-slate-300 px-2 py-1" value={startKeyword} onChange={(e) => setStartKeyword(e.target.value)} onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'start')} placeholder="출발지 검색" />
               <button className="h-9 w-9 shrink-0 rounded border border-slate-300 text-base hover:bg-slate-50" type="button" onClick={() => searchPlace('start')} aria-label="출발지 찾기" title="출발지 찾기">🔍</button>
             </div>
             <div className="flex items-center">
-              <input className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1" value={endKeyword} onChange={(e) => setEndKeyword(e.target.value)} onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'end')} placeholder="도착지 검색" />
+              <input className="min-w-0 h-9 flex-1 rounded border border-slate-300 px-2 py-1" value={endKeyword} onChange={(e) => setEndKeyword(e.target.value)} onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'end')} placeholder="도착지 검색" />
               <button className="h-9 w-9 shrink-0 rounded border border-slate-300 text-base hover:bg-slate-50" type="button" onClick={() => searchPlace('end')} aria-label="도착지 찾기" title="도착지 찾기">🔍</button>
             </div>
           </div>

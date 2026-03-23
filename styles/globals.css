@@ -11,3 +11,15 @@ body,
 body {
   @apply bg-white text-slate-900;
 }
+
+/* Prevent mobile browsers (esp. iOS) from auto-zooming inputs by ensuring
+   a minimum font-size on small screens. This avoids disabling zoom for
+   accessibility while preventing unwanted focus-zoom. */
+@media (max-width: 480px) {
+  input,
+  textarea,
+  select,
+  button {
+    font-size: 16px;
+  }
+}
