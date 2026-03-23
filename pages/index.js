@@ -47,6 +47,22 @@ export default function Home() {
   const routeBadgeRowRefs = useRef({})
   const defaultMapCenter = { lon: 127.053749, lat: 37.289522 }
 
+  function compareRoutes(a, b) {
+    const na = String((a && (a.routeName || a.routeId)) || '')
+    const nb = String((b && (b.routeName || b.routeId)) || '')
+    const ma = na.match(/\d+/)
+    const mb = nb.match(/\d+/)
+    if (ma && mb) {
+      const va = Number(ma[0])
+      const vb = Number(mb[0])
+      if (va !== vb) return va - vb
+      return na.localeCompare(nb, undefined, { numeric: true, sensitivity: 'base' })
+    }
+    if (ma && !mb) return -1
+    if (!ma && mb) return 1
+    return na.localeCompare(nb, undefined, { sensitivity: 'base' })
+  }
+
   function getGroupKey(g) {
     return g.board.stationId + '-' + g.alight.stationId
   }
@@ -62,6 +78,7 @@ export default function Home() {
       seen.add(key)
       out.push({ routeId, routeName, routeTypeCd: r.routeTypeCd })
     }
+    out.sort(compareRoutes)
     return out
   }
 
@@ -1184,7 +1201,9 @@ export default function Home() {
                             if (!rid || seen.has(rid)) continue
                             seen.set(rid, { routeId: rid, routeName: e.routeName, routeTypeCd: e.routeTypeCd })
                           }
-                          return Array.from(seen.values()).map((r) => (
+                          const arr = Array.from(seen.values())
+                          arr.sort(compareRoutes)
+                          return arr.map((r) => (
                             <button key={r.routeId} type="button" onClick={() => handleSelectAllGroupsRoute(r.routeId)} style={{ padding: '4px 8px', borderRadius: 9999, border: '1px solid #e5e7eb', background: String(allGroupsSelectedRouteId) === String(r.routeId) ? '#2563eb' : '#fff', color: String(allGroupsSelectedRouteId) === String(r.routeId) ? '#fff' : '#374151', fontWeight: 700, whiteSpace: 'nowrap' }}>{r.routeName}</button>
                           ))
                         })()}
