@@ -49,6 +49,9 @@ export default function Home() {
   const [allGroupsHighlightedRowIndex, setAllGroupsHighlightedRowIndex] = useState(-1)
   const [groupHighlightedRowIndexes, setGroupHighlightedRowIndexes] = useState<Record<string, number>>({})
   const [allGroupsSelectedRouteId, setAllGroupsSelectedRouteId] = useState<string | null>(null)
+  const [locatingStart, setLocatingStart] = useState(false)
+  const [locatingEnd, setLocatingEnd] = useState(false)
+  const [locatingMap, setLocatingMap] = useState(false)
 
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
@@ -286,6 +289,65 @@ export default function Home() {
     setEndKeyword(startKeyword)
     setStartRadius(endRadius)
     setEndRadius(startRadius)
+  }
+
+  async function getCurrentLocationAndSet(type: 'start' | 'end') {
+    if (!navigator.geolocation) {
+      alert('이 브라우저는 현재 위치 기능을 지원하지 않습니다.')
+      return
+    }
+    if (type === 'start') setLocatingStart(true)
+    else setLocatingEnd(true)
+    try {
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 })
+      )
+      const lon = toCoordString(pos.coords.longitude)
+      const lat = toCoordString(pos.coords.latitude)
+      const fallbackText = `${lat}, ${lon}`
+      const addressText = await resolveAddressTextByCoord(lon, lat)
+      const keywordText = addressText || fallbackText
+      if (type === 'start') {
+        setStartPoint(lon, lat)
+        setStartKeyword(keywordText)
+      } else {
+        setEndPoint(lon, lat)
+        setEndKeyword(keywordText)
+      }
+      const kakao = (window as any).kakao
+      if (mapRef.current && kakao && kakao.maps) {
+        mapRef.current.panTo(new kakao.maps.LatLng(Number(lat), Number(lon)))
+      }
+      resetTimetableViews()
+    } catch {
+      alert('현재 위치를 가져오지 못했습니다. 위치 권한을 확인하세요.')
+    } finally {
+      if (type === 'start') setLocatingStart(false)
+      else setLocatingEnd(false)
+    }
+  }
+
+  async function moveMapToCurrentLocation() {
+    if (!navigator.geolocation) {
+      alert('이 브라우저는 현재 위치 기능을 지원하지 않습니다.')
+      return
+    }
+    setLocatingMap(true)
+    try {
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 })
+      )
+      const kakao = (window as any).kakao
+      if (mapRef.current && kakao && kakao.maps) {
+        const center = new kakao.maps.LatLng(pos.coords.latitude, pos.coords.longitude)
+        mapRef.current.setCenter(center)
+        mapRef.current.setLevel(4)
+      }
+    } catch {
+      alert('현재 위치를 가져오지 못했습니다. 위치 권한을 확인하세요.')
+    } finally {
+      setLocatingMap(false)
+    }
   }
 
   function handleSdayChange(v: string) {
@@ -779,6 +841,8 @@ export default function Home() {
               onChange={setStartKeyword}
               onSearch={() => searchPlace('start')}
               onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'start')}
+              onLocate={() => getCurrentLocationAndSet('start')}
+              locating={locatingStart}
               placeholder="출발지 검색"
             />
             <PlaceSearchInput
@@ -786,6 +850,8 @@ export default function Home() {
               onChange={setEndKeyword}
               onSearch={() => searchPlace('end')}
               onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'end')}
+              onLocate={() => getCurrentLocationAndSet('end')}
+              locating={locatingEnd}
               placeholder="도착지 검색"
             />
           </div>
@@ -820,6 +886,8 @@ export default function Home() {
           onStartRadiusChange={handleStartRadiusChange}
           onEndRadiusChange={handleEndRadiusChange}
           onFocusStartEnd={focusStartEndOnMap}
+          onMoveToCurrentLocation={moveMapToCurrentLocation}
+          locatingMap={locatingMap}
         />
 
         {/* Pending map point */}

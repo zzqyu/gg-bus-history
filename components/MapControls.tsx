@@ -6,6 +6,8 @@ interface MapControlsProps {
   onStartRadiusChange: (v: string) => void
   onEndRadiusChange: (v: string) => void
   onFocusStartEnd: () => void
+  onMoveToCurrentLocation: () => void
+  locatingMap?: boolean
 }
 
 export default function MapControls({
@@ -14,6 +16,8 @@ export default function MapControls({
   onStartRadiusChange,
   onEndRadiusChange,
   onFocusStartEnd,
+  onMoveToCurrentLocation,
+  locatingMap = false,
 }: MapControlsProps) {
   return (
     <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -24,6 +28,15 @@ export default function MapControls({
         onClick={onFocusStartEnd}
       >
         출발/도착 한눈에 보기
+      </button>
+      <button
+        className="mr-2 rounded border border-slate-300 px-2 py-1 hover:bg-slate-50 disabled:opacity-50"
+        type="button"
+        onClick={onMoveToCurrentLocation}
+        disabled={locatingMap}
+        title="현재 위치로 지도 이동"
+      >
+        {locatingMap ? '⏳' : '📍'} 현재 위치
       </button>
       <label className="flex items-center gap-1.5">
         <strong>출발 반경</strong>
