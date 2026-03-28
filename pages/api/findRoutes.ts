@@ -1,12 +1,12 @@
-export default async function handler(req, res) {
+import type { NextApiRequest, NextApiResponse } from 'next'
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    // Proxy request to internal API service running as docker service `api` on port 8000
-    const qs = new URLSearchParams(req.query).toString()
+    const qs = new URLSearchParams(req.query as Record<string, string>).toString()
     const target = `http://api:8000/findRoutes?${qs}`
     const r = await fetch(target)
     const body = await r.text()
     res.status(r.status)
-    // forward content-type header if present
     const ct = r.headers.get('content-type')
     if (ct) res.setHeader('Content-Type', ct)
     res.send(body)
