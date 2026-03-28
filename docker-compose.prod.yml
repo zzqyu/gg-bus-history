@@ -4,8 +4,10 @@ services:
     build:
       context: ./api
     volumes:
-      - ./basedata:/data:ro
-      - ./basedata.db:/app/basedata.db:ro
+      # mount application code so image remains small; allow DB write
+      - ./api:/app
+      - ./basedata:/data
+      - ./basedata.db:/app/basedata.db
     environment:
       - PYTHONUNBUFFERED=1
     # API is internal only in production (no published ports)
@@ -14,6 +16,8 @@ services:
     build:
       context: .
       dockerfile: web/Dockerfile
+    volumes:
+      - ./:/usr/src/app
     env_file:
       - .env.local
     environment: {}

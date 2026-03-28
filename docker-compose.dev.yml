@@ -4,8 +4,9 @@ services:
     build:
       context: ./api
     volumes:
-      - ./basedata:/data:ro
-      - ./basedata.db:/app/basedata.db:ro
+      - ./api:/app
+      - ./basedata:/data
+      - ./basedata.db:/app/basedata.db
     environment:
       - PYTHONUNBUFFERED=1
     ports:
@@ -15,9 +16,13 @@ services:
     build:
       context: .
       dockerfile: web/Dockerfile
+    volumes:
+      - ./:/usr/src/app
     env_file:
       - .env.local
-    environment: {}
+    environment:
+      - NODE_ENV=development
+    command: sh -c "npm ci --no-audit --no-fund || true; npm run dev"
     depends_on:
       - api
 
