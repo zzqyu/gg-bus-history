@@ -11,7 +11,7 @@ import {
   TimetableEntry,
 } from '../types'
 import { getGroupKey, getGroupRouteBadges } from '../utils/routeUtils'
-import { getDateBounds, clampDateValue, getQuickDayValue, formatDisplayTime } from '../utils/timeUtils'
+import { getDateBounds, clampDateValue, getQuickDayValue, formatDisplayTime, formatDuration } from '../utils/timeUtils'
 import { toCoordString, parseCoordValue, getPlaceDisplayText } from '../utils/mapUtils'
 import PlaceSearchInput from '../components/PlaceSearchInput'
 import SearchResultsPanel from '../components/SearchResultsPanel'
@@ -19,6 +19,7 @@ import MapControls from '../components/MapControls'
 import PendingMapPointBar from '../components/PendingMapPointBar'
 import DateSelector from '../components/DateSelector'
 import ResultsSection from '../components/ResultsSection'
+import SharePreviewModal from '../components/SharePreviewModal'
 
 export default function Home() {
   const [ax, setAx] = useState('')
@@ -539,6 +540,33 @@ export default function Home() {
     }
   }
 
+  // Prefetcher: fetch all-groups timetable without switching UI
+  const prefetchPromiseRef = useRef<Promise<void> | null>(null)
+  async function prefetchAllGroupsTimetable(): Promise<void> {
+    // If already have data, nothing to do
+    if (allGroupsTimetable && allGroupsTimetable.data) return
+    // If a prefetch is already in progress, return the existing promise so callers can await it
+    if (prefetchPromiseRef.current) return prefetchPromiseRef.current
+
+    const p = (async () => {
+      setAllGroupsTimetable({ loading: true })
+      try {
+        const params = new URLSearchParams({ ax, ay, bx, by, aradius: startRadius, bradius: endRadius })
+        if (sday) params.set('sday', sday)
+        const r = await fetch('/api/allGroupsTimetable?' + params.toString())
+        const j = await r.json()
+        setAllGroupsTimetable({ loading: false, data: j })
+      } catch (err) {
+        setAllGroupsTimetable({ loading: false, error: String(err) })
+      } finally {
+        prefetchPromiseRef.current = null
+      }
+    })()
+
+    prefetchPromiseRef.current = p
+    return p
+  }
+
   function handleSelectGroupRoute(groupKey: string, g: Group, routeId: string | null) {
     const gt = groupTimetables[groupKey]
     if (!gt || !gt.data) {
@@ -669,23 +697,100 @@ export default function Home() {
   }
 
   async function handleShare() {
-    const url = buildShareUrl()
-    if (!url) { alert('공유 가능한 URL을 생성할 수 없습니다.'); return }
+    // If we already have prefetched all-groups data, build preview immediately.
+    if (allGroupsTimetable && allGroupsTimetable.data) {
+      const payload = buildSharePayload()
+      if (!payload) { alert('공유 가능한 내용을 생성할 수 없습니다.'); return }
+      setSharePreviewText(payload.text)
+      setSharePreviewTitle(payload.title)
+      setSharePreviewLoading(false)
+      setSharePreviewOpen(true)
+      return
+    }
+
+    // Otherwise, trigger prefetch and show loading modal until ready.
+    setSharePreviewOpen(true)
+    setSharePreviewText('')
+    setSharePreviewTitle('공유 내용을 준비 중...')
+    setSharePreviewLoading(true)
     try {
-      if (typeof navigator !== 'undefined' && (navigator as any).share) {
-        await (navigator as any).share({ title: '버스탈시간 검색 결과', text: '검색 결과를 공유합니다.', url })
-        return
+      await prefetchAllGroupsTimetable()
+      const payload = buildSharePayload()
+      if (!payload) {
+        setSharePreviewText('공유 가능한 내용을 생성할 수 없습니다.')
+        setSharePreviewTitle('공유 불가')
+      } else {
+        setSharePreviewText(payload.text)
+        setSharePreviewTitle(payload.title)
       }
-      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(url)
-        alert('공유 링크를 클립보드에 복사했습니다.')
-        return
-      }
-      prompt('아래 링크를 복사하세요:', url)
-    } catch {
-      alert('공유에 실패했습니다.')
+    } catch (err) {
+      setSharePreviewText('공유할 내용을 가져오지 못했습니다.')
+      setSharePreviewTitle('오류')
+    } finally {
+      setSharePreviewLoading(false)
     }
   }
+
+  // Build share payload (title, text, url)
+  function buildSharePayload(): { title: string; text: string; url: string } | null {
+    const url = buildShareUrl()
+    if (!url) return null
+
+    let entries: TimetableEntry[] = []
+    if (allGroupsTimetable && allGroupsTimetable.data && allGroupsTimetable.data.combined) {
+      entries = allGroupsTimetable.data.combined
+    } else {
+      for (const k of Object.keys(groupTimetables)) {
+        const gt = groupTimetables[k]
+        if (!gt || !gt.data) continue
+        if (gt.selectedRouteId) {
+          const tt = (gt.data.timetables || []).find((x) => String(x.routeId) === String(gt.selectedRouteId))
+          if (tt && tt.entries) entries = entries.concat(tt.entries.map((e) => ({ ...e, routeId: tt.routeId, routeName: tt.routeName, routeTypeCd: tt.routeTypeCd })))
+        } else {
+          entries = entries.concat(gt.data.combined || [])
+        }
+      }
+    }
+
+    const now = new Date()
+    const nowMinutes = now.getHours() * 60 + now.getMinutes()
+    const withMinutes = entries.map((e) => ({ e, mins: getDisplayMinutes(e.boardTime) }))
+    const upcoming = withMinutes.filter((x) => x.mins != null && x.mins >= nowMinutes).sort((a, b) => (a.mins! - b.mins!)).map((x) => x.e)
+    const fallbackSorted = withMinutes.filter((x) => x.mins != null).sort((a, b) => (a.mins! - b.mins!)).map((x) => x.e)
+    const chosen = (upcoming.length > 0 ? upcoming : fallbackSorted).slice(0, 5)
+
+    const title = '버스탈시간 검색 결과'
+    const header: string[] = []
+    header.push(title)
+    if (sday) header.push(`날짜: ${sday}`)
+    if (startKeyword) header.push(`출발: ${startKeyword}`)
+    if (endKeyword) header.push(`도착: ${endKeyword}`)
+    header.push('')
+
+    const lines: string[] = []
+    if (chosen.length === 0) {
+      lines.push('예상 탑승 시간 정보가 없습니다.')
+    } else {
+      for (const it of chosen) {
+        const route = String(it.routeName || it.routeId || '-')
+        const board = formatDisplayTime(it.boardTime, sday)
+        const alight = formatDisplayTime(it.alightTime, sday)
+        const dur = formatDuration(it.boardTime, it.alightTime)
+        const boardStation = it.boardStationName || ''
+        const alightStation = it.alightStationName || ''
+        const stationPart = boardStation || alightStation ? ` (${boardStation || '-'} → ${alightStation || '-'})` : ''
+        lines.push(`· ${route}${stationPart} — 탑승 ${board} / 하차 ${alight} (소요 ${dur})`)
+      }
+    }
+
+    const text = header.concat(lines).concat(['', url]).join('\n')
+    return { title, text, url }
+  }
+
+  const [sharePreviewOpen, setSharePreviewOpen] = useState(false)
+  const [sharePreviewText, setSharePreviewText] = useState('')
+  const [sharePreviewTitle, setSharePreviewTitle] = useState('')
+  const [sharePreviewLoading, setSharePreviewLoading] = useState(false)
 
   // ─── Effects ───────────────────────────────────────────────────────
 
@@ -697,6 +802,13 @@ export default function Home() {
       return bounds.max
     })
   }, [])
+
+  // Prefetch all-groups timetable when search `result` arrives so sharing is faster
+  useEffect(() => {
+    if (!result) return
+    if (allGroupsTimetable && (allGroupsTimetable.data || allGroupsTimetable.loading)) return
+    prefetchAllGroupsTimetable().catch(() => {})
+  }, [result])
 
   useEffect(() => {
     if (!mapRef.current) return
@@ -984,6 +1096,42 @@ export default function Home() {
           getCombinedForGroup={getCombinedForGroup}
         />
       )}
+
+      <SharePreviewModal
+        open={sharePreviewOpen}
+        title={sharePreviewTitle}
+        text={sharePreviewText}
+        onClose={() => setSharePreviewOpen(false)}
+        loading={sharePreviewLoading}
+        onCopy={async () => {
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(sharePreviewText)
+              alert('미리보기 텍스트를 클립보드에 복사했습니다.')
+            } else {
+              prompt('아래 텍스트를 복사하세요:', sharePreviewText)
+            }
+          } catch {
+            alert('복사에 실패했습니다.')
+          }
+        }}
+        onShare={async () => {
+          try {
+            if ((navigator as any).share) {
+              await (navigator as any).share({ title: sharePreviewTitle || '버스탈시간 검색 결과', text: sharePreviewText, url: buildShareUrl() })
+            } else if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(sharePreviewText)
+              alert('공유 텍스트를 클립보드에 복사했습니다.')
+            } else {
+              prompt('아래 텍스트를 복사하세요:', sharePreviewText)
+            }
+          } catch {
+            alert('공유에 실패했습니다.')
+          } finally {
+            setSharePreviewOpen(false)
+          }
+        }}
+      />
     </div>
   )
 }
