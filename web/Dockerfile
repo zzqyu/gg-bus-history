@@ -1,9 +1,9 @@
-FROM node:18-bullseye
+FROM node:18-bullseye-slim
 WORKDIR /usr/src/app
+# install production deps only; app source is mounted at runtime
 COPY package.json package-lock.json* ./
-# Use npm install to allow building without a lockfile inside the image
-RUN npm install --no-audit --no-fund
-COPY . .
+RUN npm ci --only=production --no-audit --no-fund
+ENV NODE_ENV=production
+# At container start, if .next is missing (fresh mount), build then start
 EXPOSE 3000
-ENV NODE_ENV=development
-CMD ["npm", "run", "dev"]
+CMD ["sh", "-c", "if [ ! -d .next ]; then npm run build; fi && npm start"]

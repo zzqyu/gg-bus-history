@@ -4,32 +4,34 @@ services:
     build:
       context: ./api
     volumes:
-      - ./basedata:/data:ro
-      - ./basedata.db:/app/basedata.db:ro
+      # mount application code so image remains small; allow DB write
+      - ./api:/app
+      - ./basedata:/data
+      - ./basedata.db:/app/basedata.db
     environment:
       - PYTHONUNBUFFERED=1
-    ports:
-      - '8000:8000'
+    # API is internal only in production (no published ports)
 
   web:
     build:
       context: .
       dockerfile: web/Dockerfile
+    volumes:
+      - ./:/usr/src/app
     env_file:
       - .env.local
     environment: {}
-    # No host port binding for `web` — Caddy will serve HTTPS on host:3000
     depends_on:
       - api
-    # No host bind for web to preserve installed node_modules in image
 
   caddy:
     image: caddy:2
     restart: unless-stopped
     ports:
-      - '3000:3000'
+      - '80:80'
+      - '443:443'
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

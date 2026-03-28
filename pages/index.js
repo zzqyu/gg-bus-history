@@ -323,20 +323,8 @@ export default function Home() {
   }
 
   function getApiBaseUrl() {
-    const configured = (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_API_BASE) || ''
-    if (!configured) return ''
-    if (typeof window === 'undefined') return configured
-    try {
-      const url = new URL(configured)
-      const isLocalApi = url.hostname === 'localhost' || url.hostname === '127.0.0.1'
-      const isLocalBrowser = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-      if (isLocalApi && !isLocalBrowser) {
-        url.hostname = window.location.hostname
-      }
-      return url.origin
-    } catch {
-      return configured
-    }
+    // API base is proxied via Next.js server at /api/*
+    return ''
   }
 
   function getMarkerImage(type) {
@@ -585,7 +573,7 @@ export default function Home() {
     const params = { ax: axv, ay: ayv, bx: bxv, by: byv, aradius: aradius || startRadius, bradius: bradius || endRadius }
     if (qsday) params.sday = qsday
     const q = new URLSearchParams(params)
-    const r = await fetch((base ? base : '') + '/findRoutes?' + q.toString())
+    const r = await fetch('/api/findRoutes?' + q.toString())
     const j = await r.json()
     setShowAllGroupsTimetable(false)
     setShowGroupList(true)
@@ -725,7 +713,7 @@ export default function Home() {
         // ignore if group shape unexpected
       }
       if (routeId) params.set('routeId', routeId)
-      const r = await fetch((base ? base : '') + '/groupTimetable?' + params.toString())
+      const r = await fetch('/api/groupTimetable?' + params.toString())
       const j = await r.json()
       setGroupTimetables((p) => ({ ...p, [key]: { loading: false, data: j, selectedRouteId: routeId || null } }))
     } catch (err) {
@@ -747,7 +735,7 @@ export default function Home() {
       const base = getApiBaseUrl()
       const params = new URLSearchParams({ ax, ay, bx, by, aradius: startRadius, bradius: endRadius })
       if (sday) params.set('sday', sday)
-      const r = await fetch((base ? base : '') + '/allGroupsTimetable?' + params.toString())
+      const r = await fetch('/api/allGroupsTimetable?' + params.toString())
       const j = await r.json()
       setAllGroupsTimetable({ loading: false, data: j })
     } catch (err) {

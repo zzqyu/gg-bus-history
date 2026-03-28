@@ -1,0 +1,18 @@
+
+{
+    email wjdrb0626@naver.com
+}
+
+# Staging site (testing). When ready for production, remove the `acme_ca` line above.
+bustal-time.kro.kr {
+    reverse_proxy web:3000
+    encode gzip
+    # Security headers
+    header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+    header X-Content-Type-Options "nosniff"
+    header X-Frame-Options "DENY"
+    header Referrer-Policy "no-referrer-when-downgrade"
+    # Upgrade insecure requests to HTTPS and allow typical resources
+    header Content-Security-Policy "upgrade-insecure-requests; default-src 'self' 'unsafe-inline' https: data:"
+}
+
