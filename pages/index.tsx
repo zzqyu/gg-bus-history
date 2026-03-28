@@ -20,6 +20,7 @@ import PendingMapPointBar from '../components/PendingMapPointBar'
 import DateSelector from '../components/DateSelector'
 import ResultsSection from '../components/ResultsSection'
 import SharePreviewModal from '../components/SharePreviewModal'
+import Image from 'next/image'
 
 export default function Home() {
   const [ax, setAx] = useState('')
@@ -316,16 +317,23 @@ export default function Home() {
       )
       const lon = toCoordString(pos.coords.longitude)
       const lat = toCoordString(pos.coords.latitude)
+      // 즉시 좌표를 반영하고, 역지오코딩 결과는 비동기로 업데이트합니다.
       const fallbackText = `${lat}, ${lon}`
-      const addressText = await resolveAddressTextByCoord(lon, lat)
-      const keywordText = addressText || fallbackText
       if (type === 'start') {
         setStartPoint(lon, lat)
-        setStartKeyword(keywordText)
+        setStartKeyword(fallbackText)
       } else {
         setEndPoint(lon, lat)
-        setEndKeyword(keywordText)
+        setEndKeyword(fallbackText)
       }
+      // 비동기 역지오코딩: 결과가 있으면 키워드를 업데이트
+      resolveAddressTextByCoord(lon, lat).then((addressText) => {
+        const keywordText = addressText || fallbackText
+        if (type === 'start') setStartKeyword(keywordText)
+        else setEndKeyword(keywordText)
+      }).catch(() => {
+        // 실패해도 무시하고 기존 좌표 텍스트 유지
+      })
       const kakao = (window as any).kakao
       if (mapRef.current && kakao && kakao.maps) {
         mapRef.current.panTo(new kakao.maps.LatLng(Number(lat), Number(lon)))
@@ -952,11 +960,17 @@ export default function Home() {
         <title>버스탈시간-경기도 버스 시간 이력 조회 서비스</title>
       </Head>
 
-      <h1 className="text-2xl font-bold">버스탈시간</h1>
-      <h3 className="mb-3 text-lg font-semibold">경기도 버스 시간 이력 조회 서비스</h3>
+      <div className="mx-auto w-full max-w-[1200px]">
+      <div className="mb-3 w-full flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">버스탈시간</h1>
+          <h3 className="text-lg font-semibold">경기도 버스 시간 이력 조회 서비스</h3>
+        </div>
+        {/* GitHub button moved to footer */}
+      </div>
 
       {/* Map section */}
-      <div className="mb-3 max-w-[900px] rounded-lg border border-slate-300 p-3">
+      <div className="mb-3 w-full rounded-lg border border-slate-300 p-3">
         {/* Place search inputs */}
         <div className="mb-2 flex items-stretch">
           <button
@@ -992,7 +1006,7 @@ export default function Home() {
 
         {/* Search result panels */}
         {showSearchPanels && (
-          <div className="mb-2 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="w-full mb-2 grid grid-cols-1 gap-3">
             {showStartSearchPanel && (
               <SearchResultsPanel
                 title="출발지 검색결과"
@@ -1045,7 +1059,7 @@ export default function Home() {
       </div>
 
       {/* Search form */}
-      <form onSubmit={submit} className="grid max-w-[640px] gap-2">
+      <form onSubmit={submit} className="grid w-full max-w-[720px] mx-0 gap-2 mt-4 px-2 sm:px-0">
         <DateSelector
           sday={sday}
           dateBounds={dateBounds}
@@ -1055,7 +1069,7 @@ export default function Home() {
           onSdayChange={handleSdayChange}
           onQuickDay={setQuickDay}
         />
-        <div>
+        <div className="flex">
           <button
             type="submit"
             className="h-11 w-[180px] rounded bg-slate-900 text-base font-bold text-white hover:bg-slate-700"
@@ -1132,6 +1146,25 @@ export default function Home() {
           }
         }}
       />
+      {/* Footer */}
+      <footer className="mt-6 border-t border-slate-200 pt-3 text-sm text-slate-600">
+        <div className="w-full flex flex-col items-center justify-between gap-2 sm:flex-row">
+          <div className="text-center sm:text-left">© {new Date().getFullYear()} zzqyu. All rights reserved.</div>
+          <a
+            href="https://github.com/zzqyu/gg-bus-history"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="GitHub 저장소 열기"
+            className="inline-flex items-center rounded border border-slate-300 px-2 py-1 text-slate-700 hover:bg-slate-50"
+          >
+            <Image src="/github-svgrepo-com.svg" alt="GitHub" width={16} height={16} />
+            <span className="hidden ml-1 sm:inline">GitHub</span>
+            <span className="sr-only">GitHub repository</span>
+          </a>
+        </div>
+      </footer>
+
+      </div>
     </div>
   )
 }

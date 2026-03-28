@@ -78,7 +78,7 @@ export default function ResultsSection({
   const groups = result.groups || []
 
   return (
-    <div className="mt-5 max-w-[900px]">
+    <div className="mt-5">
       {/* Header */}
       <div className="mb-3 flex items-center justify-between gap-2">
         <h3 className="m-0 text-base font-bold">검색 결과: {groups.length}</h3>

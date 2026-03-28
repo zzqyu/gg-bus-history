@@ -37,7 +37,7 @@ export default function DateSelector({
       </div>
       <div className="flex flex-wrap items-center gap-0">
         <button
-          className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50"
+          className="rounded border border-slate-300 text-sm px-2 py-1 hover:bg-slate-50"
           style={sday === quickDay1 ? { backgroundColor: '#e8f0ff' } : undefined}
           type="button"
           onClick={() => onQuickDay(1)}
@@ -45,7 +45,7 @@ export default function DateSelector({
           1일전
         </button>
         <button
-          className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50"
+          className="rounded border border-slate-300 text-sm px-2 py-1 hover:bg-slate-50"
           style={sday === quickDay2 ? { backgroundColor: '#e8f0ff' } : undefined}
           type="button"
           onClick={() => onQuickDay(2)}
@@ -53,7 +53,7 @@ export default function DateSelector({
           2일전
         </button>
         <button
-          className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-50"
+          className="rounded border border-slate-300 text-sm px-2 py-1 hover:bg-slate-50"
           style={sday === quickDay7 ? { backgroundColor: '#e8f0ff' } : undefined}
           type="button"
           onClick={() => onQuickDay(7)}
