@@ -1,6 +1,8 @@
-export default async function handler(req, res) {
+import type { NextApiRequest, NextApiResponse } from 'next'
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    const qs = new URLSearchParams(req.query).toString()
+    const qs = new URLSearchParams(req.query as Record<string, string>).toString()
     const target = `http://api:8000/allGroupsTimetable?${qs}`
     const r = await fetch(target)
     const body = await r.text()
