@@ -94,6 +94,17 @@ export default function Home() {
     return image
   }
 
+  // distance in meters between two lat/lon points (Haversine)
+  function computeDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const toRad = (deg: number) => (deg * Math.PI) / 180
+    const R = 6371000 // earth radius meters
+    const dLat = toRad(lat2 - lat1)
+    const dLon = toRad(lon2 - lon1)
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    return R * c
+  }
+
   function getMarkerLabelHtml(type: 'start' | 'end') {
     const bg = type === 'start' ? '#2563eb' : '#ef4444'
     const text = type === 'start' ? '출발지' : '도착지'
@@ -451,6 +462,16 @@ export default function Home() {
     if ([startLng, startLat, endLng, endLat].some((v) => Number.isNaN(v))) {
       setResult({ error: '출발지와 도착지를 먼저 선택하세요.' })
       return
+    }
+    // 차단: 출발/도착지 간 거리가 500m 미만이면 검색하지 않음
+    try {
+      const dist = computeDistanceMeters(startLat, startLng, endLat, endLng)
+      if (dist < 500) {
+        setResult({ error: '출발지와 도착지가 너무 가깝습니다. 500m 이상 떨어진 지점을 선택하세요.' })
+        return
+      }
+    } catch (e) {
+      // 거리 계산 실패 시 기본 동작(검색 진행)
     }
     setResult({ loading: true })
     resetTimetableViews()
