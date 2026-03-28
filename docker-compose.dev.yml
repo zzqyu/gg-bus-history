@@ -18,10 +18,8 @@ services:
     env_file:
       - .env.local
     environment: {}
-    # No host port binding for `web` — Caddy will serve HTTPS on host:3000
     depends_on:
       - api
-    # No host bind for web to preserve installed node_modules in image
 
   caddy:
     image: caddy:2
@@ -29,7 +27,7 @@ services:
     ports:
       - '3000:3000'
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./Caddyfile.dev:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

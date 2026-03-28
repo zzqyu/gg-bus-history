@@ -1,0 +1,5 @@
+localhost:3000 {
+    tls internal
+    reverse_proxy web:3000
+    encode gzip
+}
