@@ -291,13 +291,21 @@ def build_timetables_for_routes(routes, board_station_id: str, alight_station_id
     MAX_PREV_TO_ALIGHT = 600
     LOW_PCT = 0.10
 
-    # ── Look up prev stationId (alightOrder - 1) for each route via DB ──────────────
+    # ── Look up prev stationId (alightOrder - 1) and station coords for geo fallback ──
     prev_station_by_route = {}
+    prev_station_coords = {}  # str(rid) -> (lat, lon)
+    alight_coords = None      # (lat, lon) shared across routes in this call
     try:
         dbp = Path('basedata.db')
         if dbp.exists():
             _conn = get_db_connection(str(dbp))
             _cur = _conn.cursor()
+            # fetch alight station coords once (shared across all routes)
+            _cur.execute("SELECT CAST(y AS REAL), CAST(x AS REAL) FROM station WHERE stationId=?",
+                         (str(alight_station_id),))
+            _ac = _cur.fetchone()
+            if _ac:
+                alight_coords = (float(_ac[0]), float(_ac[1]))
             for r in routes or []:
                 rid = r.get('routeId')
                 try:
@@ -312,6 +320,12 @@ def build_timetables_for_routes(routes, board_station_id: str, alight_station_id
                     row = _cur.fetchone()
                     if row:
                         prev_station_by_route[str(rid)] = str(row[0])
+                        # also fetch coords for this prev station
+                        _cur.execute("SELECT CAST(y AS REAL), CAST(x AS REAL) FROM station WHERE stationId=?",
+                                     (str(row[0]),))
+                        _pc = _cur.fetchone()
+                        if _pc:
+                            prev_station_coords[str(rid)] = (float(_pc[0]), float(_pc[1]))
             _conn.close()
     except Exception as _e:
         logger.warning(f"build_timetables_for_routes: prev station lookup failed: {_e}")
@@ -460,6 +474,15 @@ def build_timetables_for_routes(routes, board_station_id: str, alight_station_id
             if inferred_dt is None and global_board_alight_med:
                 inferred_dt = bt + timedelta(seconds=global_board_alight_med)
                 method = 'median_duration'
+
+            # 4th tier: geo-distance fallback (prev→alight haversine / 30 km/h)
+            if inferred_dt is None and pdt:
+                _p_coords = prev_station_coords.get(str(rid))
+                if _p_coords and alight_coords:
+                    _dist_m = haversine(_p_coords[0], _p_coords[1], alight_coords[0], alight_coords[1])
+                    _geo_sec = _dist_m / (30 * 1000 / 3600)  # 30 km/h in m/s
+                    inferred_dt = pdt + timedelta(seconds=_geo_sec)
+                    method = 'geo_distance'
 
             entries.append({
                 'vehId': vid,
@@ -1080,6 +1103,9 @@ def all_groups_timetable(ax: float, ay: float, bx: float, by: float, radius: int
                 'orderGap': e.get('orderGap'),
                 'boardTime': e.get('boardTime'),
                 'alightTime': e.get('alightTime'),
+                'inferred': e.get('inferred'),
+                'inference_method': e.get('inference_method'),
+                'inference_confidence': e.get('inference_confidence'),
                 '_bt_parsed': bt,
                 '_order_gap': order_gap,
                 '_group_score': group_score,

@@ -135,22 +135,31 @@ export default function AllGroupsTimetable({
                 key={String(e.routeId || '') + '-' + String(e.vehId || '') + '-' + idx}
                 className={highlightedRowIndex === idx ? 'bg-yellow-50' : undefined}
               >
-                <td className="border-b border-slate-100 px-1 py-1.5 text-xs">
+                <td className="border-b border-slate-300 px-1 py-1.5 text-xs whitespace-nowrap">
                   <span style={getRouteNameStyle(e.routeTypeCd)}>{e.routeName || e.routeId}</span>
                 </td>
-                <td className="border-b border-slate-100 px-1 py-1.5 text-xs">
+                <td className="border-b border-slate-300 px-1 py-1.5 text-xs">
                   {e.boardStationName || '-'}
                 </td>
-                <td className="border-b border-slate-100 px-1 py-1.5 text-xs">
+                <td className="border-b border-slate-300 px-1 py-1.5 text-xs">
                   {e.alightStationName || '-'}
                 </td>
-                <td className="border-b border-slate-100 px-1 py-1.5 text-xs">
+                <td className="border-b border-slate-300 px-1 py-1.5 text-xs whitespace-nowrap">
                   {formatDisplayTime(e.boardTime, sday)}
                 </td>
-                <td className="border-b border-slate-100 px-1 py-1.5 text-xs">
-                  {formatDisplayTime(e.alightTime, sday)}
+                <td className="border-b border-slate-300 px-1 py-1.5 text-xs whitespace-nowrap">
+                  <span>{formatDisplayTime(e.alightTime, sday)}</span>
+                  {e.inferred && (
+                    <span
+                      title={`추정 시간 (${e.inference_method ?? ''}${e.inference_confidence ? ' · ' + e.inference_confidence : ''})`}
+                      className="ml-1 rounded px-0.5 text-[10px] font-semibold leading-tight"
+                      style={{ background: '#fef9c3', color: '#92400e', border: '1px solid #fcd34d' }}
+                    >
+                      추정
+                    </span>
+                  )}
                 </td>
-                <td className="border-b border-slate-100 px-1 py-1.5 text-xs">
+                <td className="border-b border-slate-300 px-1 py-1.5 text-xs">
                   {formatDuration(e.boardTime, e.alightTime)}
                 </td>
               </tr>
