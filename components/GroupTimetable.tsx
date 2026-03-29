@@ -50,7 +50,7 @@ export default function GroupTimetable({
   return (
     <div className="mt-2.5 rounded border border-amber-200 bg-amber-50 p-2.5">
       {/* Sticky header */}
-      <div className="sticky top-[69px] z-[3] bg-amber-50 py-1">
+      <div className="sticky top-[69px] z-[3] bg-amber-50 pb-1">
         <div className="flex items-center gap-2">
           <div>
             <strong>통합 시간이력:</strong> {combined.length}회
@@ -119,7 +119,7 @@ export default function GroupTimetable({
                 {['노선번호', '탑승시간', '하차시간', '소요시간'].map((h) => (
                   <th
                     key={h}
-                    className="sticky top-[111px] z-[2] border-b border-amber-400 bg-amber-100 px-1 py-1.5 text-left text-xs font-semibold"
+                    className="sticky top-[160px] z-[2] border-b border-amber-400 bg-amber-100 px-1 py-1.5 text-left text-xs font-semibold"
                   >
                     {h}
                   </th>
