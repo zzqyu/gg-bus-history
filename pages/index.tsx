@@ -277,11 +277,14 @@ export default function Home() {
   function resetTimetableViews(options: { keepExpandedGroup?: boolean } = {}) {
     setGroupTimetables({})
     setAllGroupsTimetable(null)
+    // Cancel any in-flight prefetch so its stale result doesn't overwrite new state
+    prefetchPromiseRef.current = null
     setShowGroupList(true)
     setShowAllGroupsTimetable(false)
     setGroupTimetableHidden({})
     setAllGroupsHighlightedRowIndex(-1)
     setGroupHighlightedRowIndexes({})
+    setAllGroupsSelectedRouteId(null)
     if (!options.keepExpandedGroup) setExpandedGroupKey(null)
   }
 
@@ -529,11 +532,22 @@ export default function Home() {
   }
 
   async function fetchAllGroupsTimetable() {
+    // Always reset route filter when the table is opened
+    setAllGroupsSelectedRouteId(null)
+    // Already have data (or error) → just show it
     if (allGroupsTimetable && !allGroupsTimetable.loading) {
       setShowAllGroupsTimetable(true)
       setShowGroupList(false)
       return
     }
+    // Prefetch is already in flight → show loading UI and wait; no duplicate fetch
+    if (prefetchPromiseRef.current) {
+      setShowAllGroupsTimetable(true)
+      setShowGroupList(false)
+      await prefetchPromiseRef.current
+      return
+    }
+    // No data and no in-flight request → start fresh fetch
     setAllGroupsTimetable({ loading: true })
     setShowAllGroupsTimetable(true)
     setShowGroupList(false)
@@ -1100,8 +1114,24 @@ export default function Home() {
           onFetchAllGroupsTimetable={fetchAllGroupsTimetable}
           onSelectAllGroupsRoute={setAllGroupsSelectedRouteId}
           onMoveAllGroupsToCurrentTime={moveAllGroupsToCurrentTime}
-          onFoldAllGroupsTimetable={() => { setShowAllGroupsTimetable(false); setShowGroupList(true) }}
-          onShowGroupList={() => { setShowGroupList(true); setShowAllGroupsTimetable(false) }}
+          onFoldAllGroupsTimetable={() => {
+            setShowAllGroupsTimetable(false)
+            setShowGroupList(true)
+            // Reset expanded group filter so it opens as "all" next time
+            if (expandedGroupKey) setGroupTimetables((p) => {
+              const prev = p[expandedGroupKey]
+              return prev ? { ...p, [expandedGroupKey]: { ...prev, selectedRouteId: null } } : p
+            })
+          }}
+          onShowGroupList={() => {
+            setShowGroupList(true)
+            setShowAllGroupsTimetable(false)
+            // Reset expanded group filter so it opens as "all" next time
+            if (expandedGroupKey) setGroupTimetables((p) => {
+              const prev = p[expandedGroupKey]
+              return prev ? { ...p, [expandedGroupKey]: { ...prev, selectedRouteId: null } } : p
+            })
+          }}
           onGroupCardClick={onGroupCardClick}
           onFetchGroupTimetable={fetchGroupTimetable}
           onSelectGroupRoute={handleSelectGroupRoute}
