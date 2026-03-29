@@ -814,6 +814,12 @@ export default function Home() {
   const [sharePreviewTitle, setSharePreviewTitle] = useState('')
   const [sharePreviewLoading, setSharePreviewLoading] = useState(false)
 
+  // PWA install
+  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<any>(null)
+  const [showIosInstallTip, setShowIosInstallTip] = useState(false)
+  const [isIos, setIsIos] = useState(false)
+  const [isStandalone, setIsStandalone] = useState(false)
+
   // ─── Effects ───────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -917,6 +923,34 @@ export default function Home() {
     moveGroupToCurrentTime(expandedGroupKey)
   }, [groupTimetables, expandedGroupKey, sday])
 
+  // PWA install prompt (Android) + iOS detection
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const ua = navigator.userAgent
+    const ios = /iPad|iPhone|iPod/.test(ua) && !(window as any).MSStream
+    setIsIos(ios)
+    setIsStandalone(
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (navigator as any).standalone === true
+    )
+    const handler = (e: Event) => {
+      e.preventDefault()
+      setDeferredInstallPrompt(e)
+    }
+    window.addEventListener('beforeinstallprompt', handler as EventListener)
+    return () => window.removeEventListener('beforeinstallprompt', handler as EventListener)
+  }, [])
+
+  async function handleInstallPwa() {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt()
+      const { outcome } = await deferredInstallPrompt.userChoice
+      if (outcome === 'accepted') setDeferredInstallPrompt(null)
+    } else if (isIos) {
+      setShowIosInstallTip((p) => !p)
+    }
+  }
+
   // Parse URL query params on first load
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -975,12 +1009,46 @@ export default function Home() {
       </Head>
 
       <div className="mx-auto w-full max-w-[1200px]">
-      <div className="mb-3 w-full flex items-start justify-between">
+      <div className="sticky top-0 z-10 mb-3 w-full flex items-start justify-between bg-white py-2 border-b border-slate-200">
         <div>
-          <h1 className="text-2xl font-bold">버스탈시간</h1>
-          <h3 className="text-lg font-semibold">경기도 버스 시간 이력 조회 서비스</h3>
+          <h1 className="text-xl font-bold">버스탈시간</h1>
+          <h3 className="text-m font-semibold">경기도 버스 시간 이력 조회 서비스</h3>
         </div>
-        {/* GitHub button moved to footer */}
+        {!isStandalone && (deferredInstallPrompt || isIos) && (
+          <div className="relative flex items-center">
+            <button
+              type="button"
+              onClick={handleInstallPwa}
+              className="flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-50"
+              title="홈화면에 추가"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+                <line x1="12" y1="18" x2="12" y2="18.01"/>
+                <line x1="12" y1="7" x2="12" y2="13"/>
+                <polyline points="9 10 12 7 15 10"/>
+              </svg>
+              <span className="hidden sm:inline">홈화면 추가</span>
+            </button>
+            {isIos && showIosInstallTip && (
+              <div className="absolute right-0 top-full mt-1 z-50 w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-lg text-xs text-slate-700">
+                <div className="font-semibold mb-1.5">홈화면에 추가하는 방법 (iOS)</div>
+                <ol className="list-decimal pl-4 space-y-1">
+                  <li>브라우저 앱의 공유 버튼을 누르세요</li>
+                  <li><strong>홈 화면에 추가</strong>를 선택하세요</li>
+                  <li><strong>추가</strong>를 탭하면 완료!</li>
+                </ol>
+                <button
+                  type="button"
+                  onClick={() => setShowIosInstallTip(false)}
+                  className="mt-2 text-blue-600 underline"
+                >
+                  닫기
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Map section */}

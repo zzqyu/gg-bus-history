@@ -58,7 +58,7 @@ export default function AllGroupsTimetable({
   return (
     <div className="mb-3.5 rounded-lg border border-blue-200 bg-blue-50 p-2.5">
       {/* Sticky header */}
-      <div className="sticky top-0 z-[3] bg-blue-50 py-1">
+      <div className="sticky top-[69px] z-[3] bg-blue-50 py-1">
         <div className="flex items-center gap-2">
           <div>
             <strong>전체 결과 통합 시간이력:</strong> {combined.length}회
@@ -121,7 +121,7 @@ export default function AllGroupsTimetable({
               {['노선번호', '탑승정류장', '하차정류장', '탑승시간', '하차시간', '소요시간'].map((h) => (
                 <th
                   key={h}
-                  className="sticky top-[34px] z-[2] border-b border-slate-300 bg-white px-1 py-1.5 text-left text-xs font-semibold"
+                  className="sticky top-[111px] z-[2] border-b border-slate-300 bg-white px-1 py-1.5 text-left text-xs font-semibold"
                 >
                   {h}
                 </th>
