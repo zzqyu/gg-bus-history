@@ -80,7 +80,7 @@ export default function ResultsSection({
   return (
     <div className="mt-5">
       {/* Header */}
-      <div className="mb-3 flex items-center justify-between gap-2">
+      <div className="mb-1 flex items-center justify-between gap-2">
         <h3 className="m-0 text-base font-bold">검색 결과: {groups.length}</h3>
         <div className="flex items-center gap-2">
           <button
@@ -107,6 +107,11 @@ export default function ResultsSection({
             </svg>
           </button>
         </div>
+      </div>
+      <div className="mb-3">
+        <h5 className="m-0 text-sm text-slate-500">{"* 하차 기록이 없는 경우 통계적으로 산출된 예상값입니다."}</h5>
+        <h5 className="m-0 text-sm text-slate-500">{"* 현재·미래 운행 일정, 임시편성은 반영되지 않을 수 있습니다."}</h5>
+        <h5 className="m-0 text-sm text-slate-500">{"* 실제 승차 전 버스정보시스템(경기버스정보 등)에서 실시간 확인을 권장합니다."}</h5>
       </div>
 
       {/* All groups timetable button */}

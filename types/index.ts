@@ -30,6 +30,9 @@ export interface TimetableEntry {
   orderGap?: number
   boardOrder?: number
   alightOrder?: number
+  inferred?: boolean
+  inference_method?: string | null
+  inference_confidence?: string | null
 }
 
 export interface RouteTimetable {

@@ -1,0 +1,18 @@
+{
+  "name": "버스탈시간 - 경기도 버스 시간 이력",
+  "short_name": "버스탈시간",
+  "description": "경기도 버스 시간 이력 조회 서비스",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1E3A8A",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

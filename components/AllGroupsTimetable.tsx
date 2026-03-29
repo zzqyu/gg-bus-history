@@ -58,7 +58,7 @@ export default function AllGroupsTimetable({
   return (
     <div className="mb-3.5 rounded-lg border border-blue-200 bg-blue-50 p-2.5">
       {/* Sticky header */}
-      <div className="sticky top-0 z-[3] bg-blue-50 py-1">
+      <div className="sticky top-[69px] z-[3] bg-blue-50 py-1">
         <div className="flex items-center gap-2">
           <div>
             <strong>전체 결과 통합 시간이력:</strong> {combined.length}회
@@ -121,7 +121,7 @@ export default function AllGroupsTimetable({
               {['노선번호', '탑승정류장', '하차정류장', '탑승시간', '하차시간', '소요시간'].map((h) => (
                 <th
                   key={h}
-                  className="sticky top-[34px] z-[2] border-b border-slate-300 bg-white px-1 py-1.5 text-left text-xs font-semibold"
+                  className="sticky top-[111px] z-[2] border-b border-slate-300 bg-white px-1 py-1.5 text-left text-xs font-semibold"
                 >
                   {h}
                 </th>
@@ -135,22 +135,31 @@ export default function AllGroupsTimetable({
                 key={String(e.routeId || '') + '-' + String(e.vehId || '') + '-' + idx}
                 className={highlightedRowIndex === idx ? 'bg-yellow-50' : undefined}
               >
-                <td className="border-b border-slate-100 px-1 py-1.5 text-xs">
+                <td className="border-b border-slate-300 px-1 py-1.5 text-xs whitespace-nowrap">
                   <span style={getRouteNameStyle(e.routeTypeCd)}>{e.routeName || e.routeId}</span>
                 </td>
-                <td className="border-b border-slate-100 px-1 py-1.5 text-xs">
+                <td className="border-b border-slate-300 px-1 py-1.5 text-xs">
                   {e.boardStationName || '-'}
                 </td>
-                <td className="border-b border-slate-100 px-1 py-1.5 text-xs">
+                <td className="border-b border-slate-300 px-1 py-1.5 text-xs">
                   {e.alightStationName || '-'}
                 </td>
-                <td className="border-b border-slate-100 px-1 py-1.5 text-xs">
+                <td className="border-b border-slate-300 px-1 py-1.5 text-xs whitespace-nowrap">
                   {formatDisplayTime(e.boardTime, sday)}
                 </td>
-                <td className="border-b border-slate-100 px-1 py-1.5 text-xs">
-                  {formatDisplayTime(e.alightTime, sday)}
+                <td className="border-b border-slate-300 px-1 py-1.5 text-xs whitespace-nowrap">
+                  <span>{formatDisplayTime(e.alightTime, sday)}</span>
+                  {e.inferred && (
+                    <span
+                      title={`추정 시간 (${e.inference_method ?? ''}${e.inference_confidence ? ' · ' + e.inference_confidence : ''})`}
+                      className="ml-1 rounded px-0.5 text-[10px] font-semibold leading-tight"
+                      style={{ background: '#fef9c3', color: '#92400e', border: '1px solid #fcd34d' }}
+                    >
+                      추정
+                    </span>
+                  )}
                 </td>
-                <td className="border-b border-slate-100 px-1 py-1.5 text-xs">
+                <td className="border-b border-slate-300 px-1 py-1.5 text-xs">
                   {formatDuration(e.boardTime, e.alightTime)}
                 </td>
               </tr>

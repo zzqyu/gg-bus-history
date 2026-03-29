@@ -50,7 +50,7 @@ export default function GroupTimetable({
   return (
     <div className="mt-2.5 rounded border border-amber-200 bg-amber-50 p-2.5">
       {/* Sticky header */}
-      <div className="sticky top-0 z-[3] bg-amber-50 py-1">
+      <div className="sticky top-[69px] z-[3] bg-amber-50 py-1">
         <div className="flex items-center gap-2">
           <div>
             <strong>통합 시간이력:</strong> {combined.length}회
@@ -119,7 +119,7 @@ export default function GroupTimetable({
                 {['노선번호', '탑승시간', '하차시간', '소요시간'].map((h) => (
                   <th
                     key={h}
-                    className="sticky top-[34px] z-[2] border-b border-amber-400 bg-amber-100 px-1 py-1.5 text-left text-xs font-semibold"
+                    className="sticky top-[111px] z-[2] border-b border-amber-400 bg-amber-100 px-1 py-1.5 text-left text-xs font-semibold"
                   >
                     {h}
                   </th>
@@ -133,18 +133,27 @@ export default function GroupTimetable({
                   key={String(e.vehId || '') + '-' + cIdx}
                   className={highlightedRowIndex === cIdx ? 'bg-amber-100' : undefined}
                 >
-                  <td className="border-b border-amber-100 px-1 py-1.5 text-xs">
+                  <td className="border-b border-amber-300 px-1 py-1.5 text-xs whitespace-nowrap">
                     <span style={getRouteNameStyle(e.routeTypeCd)}>
                       {e.routeName || e.routeId || '-'}
                     </span>
                   </td>
-                  <td className="border-b border-amber-100 px-1 py-1.5 text-xs">
+                  <td className="border-b border-amber-300 px-1 py-1.5 text-xs whitespace-nowrap">
                     {formatDisplayTime(e.boardTime, sday)}
                   </td>
-                  <td className="border-b border-amber-100 px-1 py-1.5 text-xs">
-                    {formatDisplayTime(e.alightTime, sday)}
+                  <td className="border-b border-amber-300 px-1 py-1.5 text-xs whitespace-nowrap">
+                    <span>{formatDisplayTime(e.alightTime, sday)}</span>
+                    {e.inferred && (
+                      <span
+                        title={`추정 시간 (${e.inference_method ?? ''}${e.inference_confidence ? ' · ' + e.inference_confidence : ''})`}
+                        className="ml-1 rounded px-0.5 text-[10px] font-semibold leading-tight"
+                        style={{ background: '#fef9c3', color: '#92400e', border: '1px solid #fcd34d' }}
+                      >
+                        추정
+                      </span>
+                    )}
                   </td>
-                  <td className="border-b border-amber-100 px-1 py-1.5 text-xs">
+                  <td className="border-b border-amber-300 px-1 py-1.5 text-xs">
                     {formatDuration(e.boardTime, e.alightTime)}
                   </td>
                 </tr>
@@ -155,15 +164,14 @@ export default function GroupTimetable({
       )}
 
       {/* Per-route summary */}
-      <div className="mt-2">
-        <strong>노선별:</strong>
+      <div className="flex gap-1 mt-4">
+        {(state.data?.timetables || []).map((tt, tIdx) => (
+          <div key={String(tt.routeId) + '-' + tIdx} className="mt-1.5 text-sm">
+            <span style={getRouteNameStyle(tt.routeTypeCd)}>{tt.routeName}</span> :{' '}
+            {(tt.entries || []).length}회
+          </div>
+        ))}
       </div>
-      {(state.data?.timetables || []).map((tt, tIdx) => (
-        <div key={String(tt.routeId) + '-' + tIdx} className="mt-1.5 text-sm">
-          - <span style={getRouteNameStyle(tt.routeTypeCd)}>{tt.routeName}</span> :{' '}
-          {(tt.entries || []).length}회
-        </div>
-      ))}
     </div>
   )
 }

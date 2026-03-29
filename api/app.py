@@ -79,6 +79,86 @@ def haversine(lat1, lon1, lat2, lon2):
     return R * c
 
 
+def _median(lst):
+    """Return median of a numeric list, or None if empty."""
+    if not lst:
+        return None
+    s = sorted(lst)
+    n = len(s)
+    m = n // 2
+    return s[m] if n % 2 == 1 else (s[m - 1] + s[m]) / 2
+
+
+def _low_median(lst, pct=0.10):
+    """Return median of the lowest `pct` fraction of lst (minimum 1 element), or None."""
+    if not lst:
+        return None
+    s = sorted(lst)
+    k = max(1, int(len(s) * pct))
+    return _median(s[:k])
+
+
+def _match_vehicle_dp(b_times, a_times, prev_dts, max_trip_sec=6 * 3600, max_prev_to_alight=600):
+    """Order-preserving DP matching for one vehicle.
+
+    Maximises match count first, then minimises total cost.
+
+    If prev_dts[i] is not None (prev-stop arrival time for board i):
+      - hard-reject: alight < prev  (physically impossible)
+      - hard-reject: alight - prev > max_prev_to_alight  (stale / device-left-on scan)
+      - cost = alight - prev  (small gap = good)
+    Otherwise:
+      - cost = alight - board
+    """
+    nb, na = len(b_times), len(a_times)
+    dp = [[(0, 0)] * (na + 1) for _ in range(nb + 1)]
+    parent = [[None] * (na + 1) for _ in range(nb + 1)]
+    dp[0][0] = (0, 0)
+    for i in range(nb + 1):
+        for j in range(na + 1):
+            cur = dp[i][j]
+            if i < nb and cur < dp[i + 1][j]:
+                dp[i + 1][j] = cur
+                parent[i + 1][j] = (i, j, 'sb')
+            if j < na and cur < dp[i][j + 1]:
+                dp[i][j + 1] = cur
+                parent[i][j + 1] = (i, j, 'sa')
+            if i < nb and j < na:
+                b = b_times[i]
+                a = a_times[j]
+                if a is None or b is None or a <= b:
+                    continue
+                delta = (a - b).total_seconds()
+                if delta > max_trip_sec:
+                    continue
+                pdt = prev_dts[i]
+                if pdt is not None:
+                    if a < pdt:
+                        continue
+                    pg = (a - pdt).total_seconds()
+                    if pg > max_prev_to_alight:
+                        continue
+                    cost = pg
+                else:
+                    cost = delta
+                cand = (cur[0] - 1, cur[1] + cost)
+                if cand < dp[i + 1][j + 1]:
+                    dp[i + 1][j + 1] = cand
+                    parent[i + 1][j + 1] = (i, j, 'm')
+    i, j = nb, na
+    matches = []
+    while i > 0 or j > 0:
+        p = parent[i][j]
+        if p is None:
+            break
+        pi, pj, act = p
+        if act == 'm':
+            matches.append((pi, pj))
+        i, j = pi, pj
+    matches.reverse()
+    return matches
+
+
 def select_best_order_pair_per_route(rows):
     """For each route, keep one A->B candidate with smallest positive staOrder gap.
     This avoids mixing multiple direction/order candidates for the same route.
@@ -163,10 +243,38 @@ def fetch_past_arrivals(routeId, stationId, staOrder, sday_norm):
     return []
 
 
+def prefetch_past_arrivals(fetch_keys, max_workers=12):
+    """Warm the pastArrival cache by fetching a batch of (routeId, stationId, staOrder, sday_norm)
+    tuples in parallel. Only dispatches keys not already cached; deduplicates automatically.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    seen = set()
+    to_fetch = []
+    for key in fetch_keys:
+        routeId, stationId, staOrder, sday_n = key
+        ck = ('pastArrival', str(routeId), str(stationId), str(staOrder), str(sday_n))
+        if ck not in seen and cache_get(ck) is None:
+            seen.add(ck)
+            to_fetch.append(key)
+
+    if not to_fetch:
+        return
+
+    def _do(key):
+        try:
+            fetch_past_arrivals(*key)
+        except Exception:
+            pass
+
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(to_fetch))) as executor:
+        list(executor.map(_do, to_fetch))
+
+
 def build_timetables_for_routes(routes, board_station_id: str, alight_station_id: str, sday_norm: str):
     timetables = []
 
-    from datetime import datetime
+    from datetime import datetime, timedelta
 
     def parse_time(s):
         if not s:
@@ -178,6 +286,86 @@ def build_timetables_for_routes(routes, board_station_id: str, alight_station_id
                 continue
         return None
 
+    MAX_TRIP_SEC = 6 * 3600
+    # Genuine prev->alight gaps are 60-120 s; 600 s cap cleanly rejects "device left on" stale scans.
+    MAX_PREV_TO_ALIGHT = 600
+    LOW_PCT = 0.10
+
+    # ── Look up prev stationId (alightOrder - 1) and station coords for geo fallback ──
+    prev_station_by_route = {}
+    prev_station_coords = {}  # str(rid) -> (lat, lon)
+    alight_coords = None      # (lat, lon) shared across routes in this call
+    try:
+        dbp = Path('basedata.db')
+        if dbp.exists():
+            _conn = get_db_connection(str(dbp))
+            _cur = _conn.cursor()
+            # fetch alight station coords once (shared across all routes)
+            _cur.execute("SELECT CAST(y AS REAL), CAST(x AS REAL) FROM station WHERE stationId=?",
+                         (str(alight_station_id),))
+            _ac = _cur.fetchone()
+            if _ac:
+                alight_coords = (float(_ac[0]), float(_ac[1]))
+            for r in routes or []:
+                rid = r.get('routeId')
+                try:
+                    prev_order = int(r.get('alightOrder')) - 1
+                except Exception:
+                    continue
+                if rid is not None and prev_order > 0:
+                    _cur.execute(
+                        "SELECT stationId FROM routestation WHERE routeId=? AND CAST(staOrder AS INTEGER)=?",
+                        (str(rid), prev_order)
+                    )
+                    row = _cur.fetchone()
+                    if row:
+                        prev_station_by_route[str(rid)] = str(row[0])
+                        # also fetch coords for this prev station
+                        _cur.execute("SELECT CAST(y AS REAL), CAST(x AS REAL) FROM station WHERE stationId=?",
+                                     (str(row[0]),))
+                        _pc = _cur.fetchone()
+                        if _pc:
+                            prev_station_coords[str(rid)] = (float(_pc[0]), float(_pc[1]))
+            _conn.close()
+    except Exception as _e:
+        logger.warning(f"build_timetables_for_routes: prev station lookup failed: {_e}")
+
+    # ── Parallel-fetch all external API data before the processing loop ──────
+    # Collects every (routeId, stationId, staOrder, sday) key this batch needs and
+    # fires them concurrently; the per-route loop below will then hit cache only.
+    _pre_keys = []
+    for _r in routes or []:
+        _rid2 = _r.get('routeId')
+        if _rid2 is None:
+            continue
+        try:
+            _bo2 = int(_r.get('boardOrder'))
+            _ao2 = int(_r.get('alightOrder'))
+        except Exception:
+            continue
+        _pre_keys.append((_rid2, board_station_id, _bo2, sday_norm))
+        _pre_keys.append((_rid2, alight_station_id, _ao2, sday_norm))
+        _prev_sid2 = prev_station_by_route.get(str(_rid2))
+        if _prev_sid2:
+            _pre_keys.append((_rid2, _prev_sid2, _ao2 - 1, sday_norm))
+    if _pre_keys:
+        prefetch_past_arrivals(_pre_keys)
+
+    def group_by_vid(lst):
+        d = {}
+        for e in lst:
+            if not isinstance(e, dict):
+                continue
+            vid = e.get('vehId')
+            if not vid:
+                continue
+            k = str(vid)
+            t = parse_time(e.get('arrivalDate') or e.get('depatureDate'))
+            d.setdefault(k, []).append((t, e))
+        for k in list(d.keys()):
+            d[k].sort(key=lambda x: (x[0] is None, x[0]))
+        return d
+
     for r in routes or []:
         rid = r.get('routeId')
         if rid is None:
@@ -188,79 +376,126 @@ def build_timetables_for_routes(routes, board_station_id: str, alight_station_id
         except Exception:
             continue
 
-        board_list = fetch_past_arrivals(rid, board_station_id, board_order, sday_norm)
+        board_list  = fetch_past_arrivals(rid, board_station_id, board_order, sday_norm)
         alight_list = fetch_past_arrivals(rid, alight_station_id, alight_order, sday_norm)
 
-        def group_by_vid(lst):
-            d = {}
-            for e in lst:
-                if not isinstance(e, dict):
-                    continue
-                vid = e.get('vehId')
-                if not vid:
-                    continue
-                k = str(vid)
-                t = parse_time(e.get('arrivalDate') or e.get('depatureDate'))
-                d.setdefault(k, []).append((t, e))
-            for k in list(d.keys()):
-                d[k].sort(key=lambda x: (x[0] is None, x[0]))
-            return d
+        prev_station_id = prev_station_by_route.get(str(rid))
+        prev_list = []
+        if prev_station_id:
+            prev_list = fetch_past_arrivals(rid, prev_station_id, alight_order - 1, sday_norm)
 
-        board_groups = group_by_vid(board_list)
+        board_groups  = group_by_vid(board_list)
         alight_groups = group_by_vid(alight_list)
+        prev_groups   = group_by_vid(prev_list)
 
+        def find_prev_dt(vid, board_dt, _pg=prev_groups):
+            """Return the first prev-stop arrival >= board_dt for this vehicle."""
+            for pt, _ in _pg.get(str(vid), []):
+                if pt and board_dt and pt >= board_dt:
+                    return pt
+            return None
+
+        # ── Per-vehicle DP matching ───────────────────────────────────────────────
         entries = []
-        max_trip_sec = 2 * 3600
-        for vid in [v for v in board_groups.keys() if v in alight_groups]:
-            b_seq = board_groups.get(vid, [])
+        obs_prev_gaps_by_vid = {}  # vid -> [prev->alight seconds]
+        all_prev_gaps = []
+        unmatched_boards = []  # (vid, bt, b_entry, prev_dt)
+
+        for vid in board_groups:
+            b_seq = board_groups[vid]
             a_seq = alight_groups.get(vid, [])
-            a_idx = 0
+            b_times_l = [bt for bt, _ in b_seq]
+            a_times_l = [at for at, _ in a_seq]
+            prev_dts  = [find_prev_dt(vid, bt) for bt in b_times_l]
 
-            for bt, b in b_seq:
-                if bt is None:
-                    continue
+            matches = _match_vehicle_dp(
+                b_times_l, a_times_l, prev_dts,
+                max_trip_sec=MAX_TRIP_SEC,
+                max_prev_to_alight=MAX_PREV_TO_ALIGHT,
+            )
+            matched_b_idx = {bi for bi, _ in matches}
 
-                while a_idx < len(a_seq):
-                    at0, _ = a_seq[a_idx]
-                    if at0 is None or at0 <= bt:
-                        a_idx += 1
-                        continue
-                    break
-
-                if a_idx >= len(a_seq):
-                    continue
-
-                best_idx = None
-                best_delta = None
-                probe = a_idx
-                while probe < len(a_seq):
-                    at, _ = a_seq[probe]
-                    if at is None:
-                        probe += 1
-                        continue
-                    delta = (at - bt).total_seconds()
-                    if delta <= 0:
-                        probe += 1
-                        continue
-                    if delta > max_trip_sec:
-                        break
-                    if best_delta is None or delta < best_delta:
-                        best_delta = delta
-                        best_idx = probe
-                    probe += 1
-
-                if best_idx is None:
-                    continue
-
-                at, a = a_seq[best_idx]
+            for bi, ai in matches:
+                bt, b_entry = b_seq[bi]
+                at, a_entry = a_seq[ai]
+                pdt = prev_dts[bi]
+                prev_str = pdt.strftime('%Y-%m-%d %H:%M:%S') if pdt else None
                 entries.append({
-                    'vehId': vid,
-                    'boardRunSeq': b.get('runSeq'),
-                    'alightRunSeq': a.get('runSeq'),
-                    'boardTime': b.get('arrivalDate') or b.get('depatureDate'),
-                    'alightTime': a.get('arrivalDate') or a.get('depatureDate')
+                    'vehId': str(vid),
+                    'boardRunSeq': b_entry.get('runSeq'),
+                    'alightRunSeq': a_entry.get('runSeq'),
+                    'boardTime': b_entry.get('arrivalDate') or b_entry.get('depatureDate'),
+                    'alightTime': a_entry.get('arrivalDate') or a_entry.get('depatureDate'),
+                    'prevTime': prev_str,
+                    'inferred': False,
+                    'inference_method': None,
+                    'inference_confidence': None,
+                    'reason': None,
                 })
-                a_idx = best_idx + 1
+                if pdt and at and at > pdt:
+                    g = (at - pdt).total_seconds()
+                    obs_prev_gaps_by_vid.setdefault(str(vid), []).append(g)
+                    all_prev_gaps.append(g)
+
+            for i, (bt, b_entry) in enumerate(b_seq):
+                if i not in matched_b_idx and bt is not None:
+                    unmatched_boards.append((str(vid), bt, b_entry, prev_dts[i]))
+
+        # ── Build inference statistics ────────────────────────────────────────────
+        per_veh_low    = {vid: _low_median(gaps, LOW_PCT) for vid, gaps in obs_prev_gaps_by_vid.items()}
+        global_low_prev = _low_median(all_prev_gaps, LOW_PCT)
+        global_med_prev = _median(all_prev_gaps)
+
+        # Fallback: board->alight median from clean observed entries
+        board_alight_durs = []
+        for e in entries:
+            bt = parse_time(e.get('boardTime'))
+            at = parse_time(e.get('alightTime'))
+            if bt and at and at > bt:
+                board_alight_durs.append((at - bt).total_seconds())
+        global_board_alight_med = _median(board_alight_durs)
+
+        n_obs = len(entries)
+        def _conf(n):
+            return 'high' if n >= 10 else ('medium' if n >= 3 else 'low')
+
+        # ── Infer unmatched boards ────────────────────────────────────────────────
+        for vid, bt, b_entry, pdt in unmatched_boards:
+            prev_str     = pdt.strftime('%Y-%m-%d %H:%M:%S') if pdt else None
+            inferred_dt  = None
+            method       = None
+
+            if pdt:
+                delta = per_veh_low.get(vid) or global_low_prev or global_med_prev
+                if delta:
+                    inferred_dt = pdt + timedelta(seconds=delta)
+                    method = 'prev_perveh' if per_veh_low.get(vid) else 'prev_global'
+
+            if inferred_dt is None and global_board_alight_med:
+                inferred_dt = bt + timedelta(seconds=global_board_alight_med)
+                method = 'median_duration'
+
+            # 4th tier: geo-distance fallback (prev→alight haversine / 30 km/h)
+            if inferred_dt is None and pdt:
+                _p_coords = prev_station_coords.get(str(rid))
+                if _p_coords and alight_coords:
+                    _dist_m = haversine(_p_coords[0], _p_coords[1], alight_coords[0], alight_coords[1])
+                    _geo_sec = _dist_m / (30 * 1000 / 3600)  # 30 km/h in m/s
+                    inferred_dt = pdt + timedelta(seconds=_geo_sec)
+                    method = 'geo_distance'
+
+            entries.append({
+                'vehId': vid,
+                'boardRunSeq': b_entry.get('runSeq'),
+                'alightRunSeq': None,
+                'boardTime': b_entry.get('arrivalDate') or b_entry.get('depatureDate'),
+                'alightTime': inferred_dt.strftime('%Y-%m-%d %H:%M:%S') if inferred_dt else None,
+                'prevTime': prev_str,
+                'inferred': True,
+                'inference_method': method,
+                'inference_confidence': _conf(n_obs) if method else None,
+                'reason': 'missing_alight_record' if inferred_dt else 'no_historical_duration',
+            })
 
         entries.sort(key=lambda x: x.get('boardTime') or '')
         timetables.append({
@@ -299,7 +534,11 @@ def build_timetables_for_routes(routes, board_station_id: str, alight_station_id
                 'orderGap': t.get('orderGap'),
                 'boardTime': e.get('boardTime'),
                 'alightTime': e.get('alightTime'),
-                '_bt_parsed': bt
+                'prevTime': e.get('prevTime'),
+                'inferred': e.get('inferred'),
+                'inference_method': e.get('inference_method'),
+                'inference_confidence': e.get('inference_confidence'),
+                '_bt_parsed': bt,
             })
     combined.sort(key=lambda x: (x['_bt_parsed'] is None, x['_bt_parsed']))
     for c in combined:
@@ -566,6 +805,41 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
 
     groups = filtered_groups
 
+    # ── Outlier-gap filter ────────────────────────────────────────────────────────
+    # Removes routes with disproportionately large orderGap when shorter alternatives
+    # exist.  Catches one-way / wrong-direction / heavy-detour routes that share a stop
+    # with both A and B but travel a long loop between them.
+    #
+    # Limit = min_global_gap + max(12, min_global_gap * 2).
+    # Scales naturally: min=4 → limit=16;  min=14 → limit=42;  min=30 → limit=90.
+    # When all routes are inherently long the limit still only trims extreme outliers.
+    _all_route_gaps = [
+        int(r.get('orderGap') or 10 ** 9)
+        for g in groups
+        for r in (g.get('routes') or [])
+        if r.get('orderGap') is not None
+    ]
+    if _all_route_gaps:
+        _min_global_gap = min(_all_route_gaps)
+        # Ratio-based limit: allows gaps up to min + max(12, min*2).
+        # This scales naturally for short routes (min=4 → limit=16) and
+        # mid-range routes (min=14 → limit=42) without a fixed min_gap guard.
+        _gap_limit = _min_global_gap + max(12, _min_global_gap * 2)
+        _outlier_filtered = []
+        for g in groups:
+            kept = [r for r in (g.get('routes') or []) if int(r.get('orderGap') or 10 ** 9) <= _gap_limit]
+            if not kept:
+                continue
+            g2 = dict(g)
+            g2['routes'] = kept
+            g2['routeIds'] = sorted({str(x.get('routeId') or '') for x in kept})
+            g2['orderGapScore'] = sum(int(x.get('orderGap') or 0) for x in kept)
+            _outlier_filtered.append(g2)
+        _removed = sum(1 for g in groups for r in (g.get('routes') or []) if int(r.get('orderGap') or 10 ** 9) > _gap_limit)
+        if _removed:
+            logger.info(f"find_routes: outlier-gap filter removed {_removed} route(s) with gap > {_gap_limit} (min_global={_min_global_gap})")
+        groups = _outlier_filtered
+
     # Deduplicate groups with identical routeId sets, keep one with best (lowest) score
     dedup = {}
     for g in groups:
@@ -691,6 +965,50 @@ def all_groups_timetable(ax: float, ay: float, bx: float, by: float, radius: int
     search = find_routes(ax=ax, ay=ay, bx=bx, by=by, radius=radius, aradius=start_radius, bradius=end_radius, sday=sday_norm)
     groups = search.get('groups') or []
 
+    # ── Parallel pre-fetch: warm cache for all groups across all routes ───────
+    # Look up prev station IDs for every route, then fire all external API calls
+    # concurrently so the per-group build_timetables_for_routes loop hits cache only.
+    _pre_keys_all = []
+    try:
+        _dbp_pre = Path('basedata.db')
+        if _dbp_pre.exists():
+            _conn_pre = get_db_connection(str(_dbp_pre))
+            _cur_pre = _conn_pre.cursor()
+            _prev_sid_pre = {}  # routeId -> prevStationId (deduped)
+            for _g in groups:
+                _bsid = str((_g.get('board') or {}).get('stationId') or '')
+                _asid = str((_g.get('alight') or {}).get('stationId') or '')
+                if not _bsid or not _asid:
+                    continue
+                for _r in (_g.get('routes') or []):
+                    _rid = _r.get('routeId')
+                    if not _rid:
+                        continue
+                    try:
+                        _bo = int(_r.get('boardOrder'))
+                        _ao = int(_r.get('alightOrder'))
+                    except Exception:
+                        continue
+                    _ridstr = str(_rid)
+                    _pre_keys_all.append((_ridstr, _bsid, _bo, sday_norm))
+                    _pre_keys_all.append((_ridstr, _asid, _ao, sday_norm))
+                    if _ridstr not in _prev_sid_pre:
+                        if _ao - 1 > 0:
+                            _cur_pre.execute(
+                                "SELECT stationId FROM routestation WHERE routeId=? AND CAST(staOrder AS INTEGER)=?",
+                                (_ridstr, _ao - 1)
+                            )
+                            _row_pre = _cur_pre.fetchone()
+                            _prev_sid_pre[_ridstr] = str(_row_pre[0]) if _row_pre else None
+                    _psid = _prev_sid_pre.get(_ridstr)
+                    if _psid:
+                        _pre_keys_all.append((_ridstr, _psid, _ao - 1, sday_norm))
+            _conn_pre.close()
+    except Exception as _pre_e:
+        logger.warning(f"allGroupsTimetable: pre-fetch key collection failed: {_pre_e}")
+    if _pre_keys_all:
+        prefetch_past_arrivals(_pre_keys_all, max_workers=16)
+
     from datetime import datetime
     def parse_time_global(s):
         if not s:
@@ -785,6 +1103,9 @@ def all_groups_timetable(ax: float, ay: float, bx: float, by: float, radius: int
                 'orderGap': e.get('orderGap'),
                 'boardTime': e.get('boardTime'),
                 'alightTime': e.get('alightTime'),
+                'inferred': e.get('inferred'),
+                'inference_method': e.get('inference_method'),
+                'inference_confidence': e.get('inference_confidence'),
                 '_bt_parsed': bt,
                 '_order_gap': order_gap,
                 '_group_score': group_score,
