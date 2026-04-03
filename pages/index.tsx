@@ -1003,53 +1003,56 @@ export default function Home() {
   // ─── Render ────────────────────────────────────────────────────────
 
   return (
-    <div className="p-5 font-sans text-[80%] text-slate-900 sm:text-[100%]">
+    <div className="font-sans text-[80%] text-slate-900 sm:text-[100%]">
       <Head>
         <title>버스탈시간-경기도 버스 시간 이력 조회 서비스</title>
       </Head>
 
-      <div className="mx-auto w-full max-w-[1200px]">
-      <div className="sticky top-0 z-10 mb-3 w-full flex items-start justify-between bg-white py-2 border-b border-slate-200">
-        <div>
-          <h1 className="text-xl font-bold">버스탈시간</h1>
-          <h3 className="text-m font-semibold">경기도 버스 시간 이력 조회 서비스</h3>
-        </div>
-        {!isStandalone && (deferredInstallPrompt || isIos) && (
-          <div className="relative flex items-center">
-            <button
-              type="button"
-              onClick={handleInstallPwa}
-              className="flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-50"
-              title="홈화면에 추가"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
-                <line x1="12" y1="18" x2="12" y2="18.01"/>
-                <line x1="12" y1="7" x2="12" y2="13"/>
-                <polyline points="9 10 12 7 15 10"/>
-              </svg>
-              <span className="hidden sm:inline">홈화면 추가</span>
-            </button>
-            {isIos && showIosInstallTip && (
-              <div className="absolute right-0 top-full mt-1 z-50 w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-lg text-xs text-slate-700">
-                <div className="font-semibold mb-1.5">홈화면에 추가하는 방법 (iOS)</div>
-                <ol className="list-decimal pl-4 space-y-1">
-                  <li>브라우저 앱의 공유 버튼을 누르세요</li>
-                  <li><strong>홈 화면에 추가</strong>를 선택하세요</li>
-                  <li><strong>추가</strong>를 탭하면 완료!</li>
-                </ol>
-                <button
-                  type="button"
-                  onClick={() => setShowIosInstallTip(false)}
-                  className="mt-2 text-blue-600 underline"
-                >
-                  닫기
-                </button>
-              </div>
-            )}
+      <div className="sticky top-0 z-10 w-full bg-white border-b border-slate-200">
+        <div className="mx-auto w-full max-w-[1200px] px-5 py-2 flex items-start justify-between">
+          <div>
+            <h1 className="text-xl font-bold">버스탈시간</h1>
+            <h3 className="text-m font-semibold">경기도 버스 시간 이력 조회 서비스</h3>
           </div>
-        )}
+          {!isStandalone && (deferredInstallPrompt || isIos) && (
+            <div className="relative flex items-center">
+              <button
+                type="button"
+                onClick={handleInstallPwa}
+                className="flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-50"
+                title="홈화면에 추가"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+                  <line x1="12" y1="18" x2="12" y2="18.01"/>
+                  <line x1="12" y1="7" x2="12" y2="13"/>
+                  <polyline points="9 10 12 7 15 10"/>
+                </svg>
+                <span className="hidden sm:inline">홈화면 추가</span>
+              </button>
+              {isIos && showIosInstallTip && (
+                <div className="absolute right-0 top-full mt-1 z-50 w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-lg text-xs text-slate-700">
+                  <div className="font-semibold mb-1.5">홈화면에 추가하는 방법 (iOS)</div>
+                  <ol className="list-decimal pl-4 space-y-1">
+                    <li>브라우저 앱의 공유 버튼을 누르세요</li>
+                    <li><strong>홈 화면에 추가</strong>를 선택하세요</li>
+                    <li><strong>추가</strong>를 탭하면 완료!</li>
+                  </ol>
+                  <button
+                    type="button"
+                    onClick={() => setShowIosInstallTip(false)}
+                    className="mt-2 text-blue-600 underline"
+                  >
+                    닫기
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
+      <div className="p-5">
+      <div className="mx-auto w-full max-w-[1200px]">
 
       {/* Map section */}
       <div className="mb-3 w-full rounded-lg border border-slate-300 p-3">
@@ -1262,6 +1265,7 @@ export default function Home() {
         </div>
       </footer>
 
+      </div>
       </div>
     </div>
   )

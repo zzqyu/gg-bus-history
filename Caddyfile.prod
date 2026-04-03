@@ -5,7 +5,15 @@
 
 # Staging site (testing). When ready for production, remove the `acme_ca` line above.
 bustal-time.kro.kr {
-    reverse_proxy web:3000
+    tls {
+        protocols tls1.2
+    }
+
+    reverse_proxy web:3000 {
+        transport http {
+            versions h1 h2
+        }
+    }
     encode gzip
     # Security headers
     header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
