@@ -68,6 +68,7 @@ export default function Home() {
   const allGroupsTableScrollRef = useRef<HTMLDivElement>(null)
   const groupTableScrollRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const routeBadgeRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const resultsSectionRef = useRef<HTMLDivElement>(null)
   const defaultMapCenter = { lon: 127.053749, lat: 37.289522 }
 
   // ─── Utility helpers ───────────────────────────────────────────────
@@ -447,10 +448,41 @@ export default function Home() {
     if (!placesRef.current || !mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
     if (type === 'start') setStartSearchMsg('검색 중...')
     else setEndSearchMsg('검색 중...')
-    placesRef.current.keywordSearch(keyword.trim(), (data: KakaoPlace[], status: any) => {
-      if (status !== kakao.maps.services.Status.OK || !data || data.length === 0) {
+
+    const runAddressSearchFallback = () => {
+      if (!geocoderRef.current || !kakao.maps.services) {
         if (type === 'start') { setStartSearchResults([]); setStartSearchMsg('검색 결과가 없습니다.') }
         else { setEndSearchResults([]); setEndSearchMsg('검색 결과가 없습니다.') }
+        return
+      }
+      geocoderRef.current.addressSearch(keyword.trim(), (data: any[], status: any) => {
+        if (status !== kakao.maps.services.Status.OK || !data || data.length === 0) {
+          if (type === 'start') { setStartSearchResults([]); setStartSearchMsg('검색 결과가 없습니다.') }
+          else { setEndSearchResults([]); setEndSearchMsg('검색 결과가 없습니다.') }
+          return
+        }
+        const mapped: KakaoPlace[] = data
+          .map((item: any) => ({
+            place_name: String(item && (item.address_name || (item.road_address && item.road_address.address_name) || '')).trim(),
+            address_name: String(item && item.address_name ? item.address_name : '').trim(),
+            road_address_name: String(item && item.road_address && item.road_address.address_name ? item.road_address.address_name : '').trim(),
+            x: String(item && item.x ? item.x : ''),
+            y: String(item && item.y ? item.y : ''),
+          }))
+          .filter((item) => item.x && item.y)
+        if (type === 'start') {
+          setStartSearchResults(mapped)
+          setStartSearchMsg(mapped.length === 0 ? '검색 결과가 없습니다.' : '')
+        } else {
+          setEndSearchResults(mapped)
+          setEndSearchMsg(mapped.length === 0 ? '검색 결과가 없습니다.' : '')
+        }
+      })
+    }
+
+    placesRef.current.keywordSearch(keyword.trim(), (data: KakaoPlace[], status: any) => {
+      if (status !== kakao.maps.services.Status.OK || !data || data.length === 0) {
+        runAddressSearchFallback()
         return
       }
       if (type === 'start') { setStartSearchResults(data); setStartSearchMsg('') }
@@ -560,6 +592,17 @@ export default function Home() {
     } catch (err) {
       setAllGroupsTimetable({ loading: false, error: String(err) })
     }
+  }
+
+  async function fetchAllGroupsTimetableAndFocus() {
+    await fetchAllGroupsTimetable()
+    setTimeout(() => {
+      moveAllGroupsToCurrentTime()
+      const tableContainer = allGroupsTableScrollRef.current
+      if (tableContainer && typeof tableContainer.scrollIntoView === 'function') {
+        tableContainer.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }, 80)
   }
 
   // Prefetcher: fetch all-groups timetable without switching UI
@@ -923,6 +966,17 @@ export default function Home() {
     moveGroupToCurrentTime(expandedGroupKey)
   }, [groupTimetables, expandedGroupKey, sday])
 
+  useEffect(() => {
+    if (!result || result.loading) return
+    const t = setTimeout(() => {
+      const node = resultsSectionRef.current
+      if (node && typeof node.scrollIntoView === 'function') {
+        node.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }, 60)
+    return () => clearTimeout(t)
+  }, [result])
+
   // PWA install prompt (Android) + iOS detection
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -999,6 +1053,9 @@ export default function Home() {
   const quickDay1 = getQuickDayValue(1, dateBounds)
   const quickDay2 = getQuickDayValue(2, dateBounds)
   const quickDay7 = getQuickDayValue(7, dateBounds)
+  const hasSearchResult = !!result && !result.loading && !result.error
+  const headerStartText = (startKeyword || (ax && ay ? `${ay}, ${ax}` : '')).trim()
+  const headerEndText = (endKeyword || (bx && by ? `${by}, ${bx}` : '')).trim()
 
   // ─── Render ────────────────────────────────────────────────────────
 
@@ -1011,8 +1068,17 @@ export default function Home() {
       <div className="sticky top-0 z-10 w-full bg-white border-b border-slate-200">
         <div className="mx-auto w-full max-w-[1200px] px-5 py-2 flex items-start justify-between">
           <div>
-            <h1 className="text-xl font-bold">버스탈시간</h1>
-            <h3 className="text-m font-semibold">경기도 버스 시간 이력 조회 서비스</h3>
+            <div className={hasSearchResult ? 'flex items-end gap-2' : ''}>
+              <h1 className="text-xl font-bold">버스탈시간</h1>
+              <h3 className="text-m font-semibold">경기도 버스 시간 이력 조회 서비스</h3>
+            </div>
+            {hasSearchResult && (headerStartText || headerEndText) && (
+              <p className="mt-1 text-xs font-medium text-slate-600 sm:text-sm">
+                {headerStartText || '-'}
+                <span className="mx-1 text-slate-400">→</span>
+                {headerEndText || '-'}
+              </p>
+            )}
           </div>
           {!isStandalone && (deferredInstallPrompt || isIos) && (
             <div className="relative flex items-center">
@@ -1075,7 +1141,7 @@ export default function Home() {
               onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'start')}
               onLocate={() => getCurrentLocationAndSet('start')}
               locating={locatingStart}
-              placeholder="출발지 검색"
+              placeholder="출발지/주소 검색"
             />
             <PlaceSearchInput
               value={endKeyword}
@@ -1084,7 +1150,7 @@ export default function Home() {
               onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'end')}
               onLocate={() => getCurrentLocationAndSet('end')}
               locating={locatingEnd}
-              placeholder="도착지 검색"
+              placeholder="도착지/주소 검색"
             />
           </div>
         </div>
@@ -1166,50 +1232,52 @@ export default function Home() {
 
       {/* Results */}
       {result != null && (
-        <ResultsSection
-          result={result}
-          sday={sday}
-          groupTimetables={groupTimetables}
-          allGroupsTimetable={allGroupsTimetable}
-          showAllGroupsTimetable={showAllGroupsTimetable}
-          showGroupList={showGroupList}
-          groupTimetableHidden={groupTimetableHidden}
-          allGroupsHighlightedRowIndex={allGroupsHighlightedRowIndex}
-          groupHighlightedRowIndexes={groupHighlightedRowIndexes}
-          allGroupsSelectedRouteId={allGroupsSelectedRouteId}
-          expandedGroupKey={expandedGroupKey}
-          allGroupsTableScrollRef={allGroupsTableScrollRef}
-          groupTableScrollRefs={groupTableScrollRefs}
-          routeBadgeRowRefs={routeBadgeRowRefs}
-          onShare={handleShare}
-          onFetchAllGroupsTimetable={fetchAllGroupsTimetable}
-          onSelectAllGroupsRoute={setAllGroupsSelectedRouteId}
-          onMoveAllGroupsToCurrentTime={moveAllGroupsToCurrentTime}
-          onFoldAllGroupsTimetable={() => {
-            setShowAllGroupsTimetable(false)
-            setShowGroupList(true)
-            // Reset expanded group filter so it opens as "all" next time
-            if (expandedGroupKey) setGroupTimetables((p) => {
-              const prev = p[expandedGroupKey]
-              return prev ? { ...p, [expandedGroupKey]: { ...prev, selectedRouteId: null } } : p
-            })
-          }}
-          onShowGroupList={() => {
-            setShowGroupList(true)
-            setShowAllGroupsTimetable(false)
-            // Reset expanded group filter so it opens as "all" next time
-            if (expandedGroupKey) setGroupTimetables((p) => {
-              const prev = p[expandedGroupKey]
-              return prev ? { ...p, [expandedGroupKey]: { ...prev, selectedRouteId: null } } : p
-            })
-          }}
-          onGroupCardClick={onGroupCardClick}
-          onFetchGroupTimetable={fetchGroupTimetable}
-          onSelectGroupRoute={handleSelectGroupRoute}
-          onMoveGroupToCurrentTime={moveGroupToCurrentTime}
-          onFoldGroupTimetable={(key) => setGroupTimetableHidden((p) => ({ ...p, [key]: true }))}
-          getCombinedForGroup={getCombinedForGroup}
-        />
+        <div ref={resultsSectionRef}>
+          <ResultsSection
+            result={result}
+            sday={sday}
+            groupTimetables={groupTimetables}
+            allGroupsTimetable={allGroupsTimetable}
+            showAllGroupsTimetable={showAllGroupsTimetable}
+            showGroupList={showGroupList}
+            groupTimetableHidden={groupTimetableHidden}
+            allGroupsHighlightedRowIndex={allGroupsHighlightedRowIndex}
+            groupHighlightedRowIndexes={groupHighlightedRowIndexes}
+            allGroupsSelectedRouteId={allGroupsSelectedRouteId}
+            expandedGroupKey={expandedGroupKey}
+            allGroupsTableScrollRef={allGroupsTableScrollRef}
+            groupTableScrollRefs={groupTableScrollRefs}
+            routeBadgeRowRefs={routeBadgeRowRefs}
+            onShare={handleShare}
+            onFetchAllGroupsTimetable={fetchAllGroupsTimetableAndFocus}
+            onSelectAllGroupsRoute={setAllGroupsSelectedRouteId}
+            onMoveAllGroupsToCurrentTime={moveAllGroupsToCurrentTime}
+            onFoldAllGroupsTimetable={() => {
+              setShowAllGroupsTimetable(false)
+              setShowGroupList(true)
+              // Reset expanded group filter so it opens as "all" next time
+              if (expandedGroupKey) setGroupTimetables((p) => {
+                const prev = p[expandedGroupKey]
+                return prev ? { ...p, [expandedGroupKey]: { ...prev, selectedRouteId: null } } : p
+              })
+            }}
+            onShowGroupList={() => {
+              setShowGroupList(true)
+              setShowAllGroupsTimetable(false)
+              // Reset expanded group filter so it opens as "all" next time
+              if (expandedGroupKey) setGroupTimetables((p) => {
+                const prev = p[expandedGroupKey]
+                return prev ? { ...p, [expandedGroupKey]: { ...prev, selectedRouteId: null } } : p
+              })
+            }}
+            onGroupCardClick={onGroupCardClick}
+            onFetchGroupTimetable={fetchGroupTimetable}
+            onSelectGroupRoute={handleSelectGroupRoute}
+            onMoveGroupToCurrentTime={moveGroupToCurrentTime}
+            onFoldGroupTimetable={(key) => setGroupTimetableHidden((p) => ({ ...p, [key]: true }))}
+            getCombinedForGroup={getCombinedForGroup}
+          />
+        </div>
       )}
 
       <SharePreviewModal
