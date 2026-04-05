@@ -1389,3 +1389,85 @@ def walk_route(ax: float, ay: float, boardx: float, boardy: float, alightx: floa
         'totalTimeSec': int(start_leg.get('timeSec') or 0) + int(end_leg.get('timeSec') or 0),
         'totalDistance': int(start_leg.get('distance') or 0) + int(end_leg.get('distance') or 0),
     }
+
+
+@app.get('/routeLine')
+def route_line(
+    routeId: str,
+    boardx: float = None,
+    boardy: float = None,
+    alightx: float = None,
+    alighty: float = None,
+    db_path: str = 'basedata.db',
+):
+    """Return route polyline points from routeline table.
+
+    If board/alight coordinates are provided, return only the segment between
+    nearest points to board and alight.
+    """
+    rid = str(routeId or '').strip()
+    if not rid:
+        raise HTTPException(status_code=400, detail='routeId is required')
+
+    dbp = Path(db_path)
+    if not dbp.exists():
+        dbp = Path('basedata.db')
+
+    conn = get_db_connection(str(dbp))
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT x, y
+            FROM routeline
+            WHERE routeId = ?
+            ORDER BY CAST(lineSeq AS INTEGER), lineSeq
+            """,
+            (rid,),
+        )
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    path = []
+    for r in rows or []:
+        try:
+            x = float(r['x'])
+            y = float(r['y'])
+            path.append([x, y])
+        except Exception:
+            continue
+
+    # Optional segment clipping between board/alight stations
+    if path and boardx is not None and boardy is not None and alightx is not None and alighty is not None:
+        def _nearest_idx(px, py, coords):
+            best_i = 0
+            best_d = None
+            for i, c in enumerate(coords):
+                try:
+                    cx = float(c[0])
+                    cy = float(c[1])
+                    d = haversine(float(py), float(px), cy, cx)
+                    if best_d is None or d < best_d:
+                        best_d = d
+                        best_i = i
+                except Exception:
+                    continue
+            return best_i
+
+        try:
+            bi = _nearest_idx(boardx, boardy, path)
+            ai = _nearest_idx(alightx, alighty, path)
+            lo = min(bi, ai)
+            hi = max(bi, ai)
+            clipped = path[lo:hi + 1]
+            if len(clipped) >= 2:
+                path = clipped
+        except Exception:
+            # Keep full path on clipping failure
+            pass
+
+    return {
+        'routeId': rid,
+        'path': path,
+    }
