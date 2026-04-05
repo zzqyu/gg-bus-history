@@ -62,7 +62,6 @@ export default function Home() {
   const [locatingEnd, setLocatingEnd] = useState(false)
   const [locatingMap, setLocatingMap] = useState(false)
   const [mapReadyTick, setMapReadyTick] = useState(0)
-  const [walkRouteByGroupKey, setWalkRouteByGroupKey] = useState<Record<string, any>>({})
 
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
@@ -74,7 +73,7 @@ export default function Home() {
   const circlesRef = useRef<{ start: any; end: any }>({ start: null, end: null })
   const groupStationMarkersRef = useRef<any[]>([])
   const groupStationOverlaysRef = useRef<any[]>([])
-  const walkPolylinesRef = useRef<any[]>([])
+  const accessLinePolylinesRef = useRef<any[]>([])
   const busRoutePolylinesRef = useRef<any[]>([])
   const busRouteBadgeOverlaysRef = useRef<any[]>([])
   const routeLinePathByRouteIdRef = useRef<Record<string, number[][]>>({})
@@ -243,13 +242,6 @@ export default function Home() {
     groupStationOverlaysRef.current = []
   }
 
-  function clearWalkPolylines() {
-    for (const line of walkPolylinesRef.current) {
-      line.setMap(null)
-    }
-    walkPolylinesRef.current = []
-  }
-
   function clearBusRoutePolylines() {
     for (const line of busRoutePolylinesRef.current) {
       line.setMap(null)
@@ -261,27 +253,54 @@ export default function Home() {
     busRouteBadgeOverlaysRef.current = []
   }
 
-  function renderWalkPolylines(pathA: number[][] = [], pathB: number[][] = []) {
+  function clearAccessLines() {
+    for (const line of accessLinePolylinesRef.current) {
+      line.setMap(null)
+    }
+    accessLinePolylinesRef.current = []
+  }
+
+  function renderAccessLines(g: Group) {
     const kakao = (window as any).kakao
     if (!mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
-    clearWalkPolylines()
-    const draw = (coords: number[][], color: string) => {
-      const points = (coords || [])
-        .filter((c) => Array.isArray(c) && c.length >= 2)
-        .map((c) => new kakao.maps.LatLng(Number(c[1]), Number(c[0])))
-      if (points.length < 2) return
-      const line = new kakao.maps.Polyline({
-        path: points,
-        strokeWeight: 5,
-        strokeColor: color,
-        strokeOpacity: 0.85,
-        strokeStyle: 'shortdot',
-      })
-      line.setMap(mapRef.current)
-      walkPolylinesRef.current.push(line)
-    }
-    draw(pathA, '#2563eb')
-    draw(pathB, '#ef4444')
+    const startLng = parseCoordValue(ax)
+    const startLat = parseCoordValue(ay)
+    const endLng = parseCoordValue(bx)
+    const endLat = parseCoordValue(by)
+    const boardLng = parseCoordValue(g.board?.lon)
+    const boardLat = parseCoordValue(g.board?.lat)
+    const alightLng = parseCoordValue(g.alight?.lon)
+    const alightLat = parseCoordValue(g.alight?.lat)
+    const nums = [startLng, startLat, endLng, endLat, boardLng, boardLat, alightLng, alightLat]
+    if (nums.some((v) => Number.isNaN(v))) return
+
+    clearAccessLines()
+
+    const startToBoard = new kakao.maps.Polyline({
+      path: [
+        new kakao.maps.LatLng(startLat, startLng),
+        new kakao.maps.LatLng(boardLat, boardLng),
+      ],
+      strokeWeight: 4,
+      strokeColor: '#2563eb',
+      strokeOpacity: 0.8,
+      strokeStyle: 'shortdash',
+    })
+    startToBoard.setMap(mapRef.current)
+    accessLinePolylinesRef.current.push(startToBoard)
+
+    const alightToEnd = new kakao.maps.Polyline({
+      path: [
+        new kakao.maps.LatLng(alightLat, alightLng),
+        new kakao.maps.LatLng(endLat, endLng),
+      ],
+      strokeWeight: 4,
+      strokeColor: '#ef4444',
+      strokeOpacity: 0.8,
+      strokeStyle: 'shortdash',
+    })
+    alightToEnd.setMap(mapRef.current)
+    accessLinePolylinesRef.current.push(alightToEnd)
   }
 
   function renderBusRoutePolylines(routePaths: Array<{ routeId: string; routeName?: string; path: number[][] }>, highlightedRouteId: string | null = null) {
@@ -550,7 +569,7 @@ export default function Home() {
     setAllGroupsHighlightedRowIndex(-1)
     setGroupHighlightedRowIndexes({})
     setAllGroupsSelectedRouteIds([])
-    clearWalkPolylines()
+    clearAccessLines()
     if (!options.keepExpandedGroup) setExpandedGroupKey(null)
   }
 
@@ -827,29 +846,6 @@ export default function Home() {
     }
   }
 
-  async function fetchWalkRouteForGroup(g: Group): Promise<void> {
-    const key = getGroupKey(g)
-    const cached = walkRouteByGroupKey[key]
-    if (cached) return
-    try {
-      const params = new URLSearchParams({
-        ax,
-        ay,
-        boardx: String(g.board.lon),
-        boardy: String(g.board.lat),
-        alightx: String(g.alight.lon),
-        alighty: String(g.alight.lat),
-        bx,
-        by,
-      })
-      const r = await fetch('/api/walkRoute?' + params.toString())
-      const j = await r.json()
-      setWalkRouteByGroupKey((prev) => ({ ...prev, [key]: j }))
-    } catch {
-      // ignore
-    }
-  }
-
   async function fetchAllGroupsTimetable() {
     // Always reset route filter when the table is opened
     setAllGroupsSelectedRouteIds([])
@@ -1054,7 +1050,6 @@ export default function Home() {
     }
     if (!sday) return
     fetchGroupTimetable(g)
-    fetchWalkRouteForGroup(g)
     renderSelectedGroupRouteLines(groupKey, g).catch(() => {})
   }
 
@@ -1245,24 +1240,16 @@ export default function Home() {
   useEffect(() => {
     if (!mapRef.current) return
     if (!result || result.loading || result.error || !expandedGroupKey) {
-      clearWalkPolylines()
+      clearAccessLines()
       return
     }
     const selected = (result.groups || []).find((g) => getGroupKey(g) === expandedGroupKey)
     if (!selected) {
-      clearWalkPolylines()
+      clearAccessLines()
       return
     }
-    const wr = walkRouteByGroupKey[expandedGroupKey]
-    if (!wr) {
-      fetchWalkRouteForGroup(selected).catch(() => {})
-      clearWalkPolylines()
-      return
-    }
-    const p1 = (wr.startToBoard && wr.startToBoard.path) || []
-    const p2 = (wr.alightToEnd && wr.alightToEnd.path) || []
-    renderWalkPolylines(p1, p2)
-  }, [result, expandedGroupKey, walkRouteByGroupKey])
+    renderAccessLines(selected)
+  }, [result, expandedGroupKey, ax, ay, bx, by])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -1615,8 +1602,6 @@ export default function Home() {
           <ResultsSection
             result={result}
             sday={sday}
-            startLabel={startKeyword || `${ay}, ${ax}`}
-            endLabel={endKeyword || `${by}, ${bx}`}
             groupTimetables={groupTimetables}
             allGroupsTimetable={allGroupsTimetable}
             showAllGroupsTimetable={showAllGroupsTimetable}

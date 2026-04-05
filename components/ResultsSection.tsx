@@ -14,8 +14,6 @@ import GroupCard from './GroupCard'
 interface ResultsSectionProps {
   result: SearchResult
   sday: string
-  startLabel: string
-  endLabel: string
   groupTimetables: Record<string, GroupTimetableState>
   allGroupsTimetable: AllGroupsTimetableState | null
   showAllGroupsTimetable: boolean
@@ -46,8 +44,6 @@ interface ResultsSectionProps {
 export default function ResultsSection({
   result,
   sday,
-  startLabel,
-  endLabel,
   groupTimetables,
   allGroupsTimetable,
   showAllGroupsTimetable,
@@ -237,7 +233,24 @@ export default function ResultsSection({
           <div className="mb-3">
             <h5 className="m-0 text-sm text-slate-500">{"* 하차 기록이 없는 경우 통계적으로 산출된 예상값입니다."}</h5>
             <h5 className="m-0 text-sm text-slate-500">{"* 현재·미래 운행 일정, 임시편성은 반영되지 않을 수 있습니다."}</h5>
-            <h5 className="m-0 text-sm text-slate-500">{"* 실제 승차 전 버스정보시스템(경기버스정보 등)에서 실시간 확인을 권장합니다."}</h5>
+            <h5 className="m-0 text-sm text-slate-500">{"* 실제 승차 전, 버스정보시스템(경기버스정보 등)에서 실시간 확인을 권장합니다."}</h5>
+            <h5 className="m-0 text-sm text-red-500">
+              <span>
+                {"* 도보 시간은 직선거리 기준 추정치이며, 상세 도보 경로는 직선거리 옆 카드 버튼"}
+                <span
+                  aria-hidden="true"
+                  className="inline-flex h-4 w-4 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                  title="외부링크 버튼 예시"
+                >
+                  <svg viewBox="0 0 24 24" className="h-2.5 w-2.5" fill="none">
+                    <path d="M14 5h5v5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M10 14 19 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M19 14v5h-14v-14h5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </span>
+                {"을 눌러 확인하세요."}
+              </span>
+            </h5>
           </div>
 
           {/* All groups timetable button */}
@@ -314,8 +327,6 @@ export default function ResultsSection({
               group={g}
               index={sortedIdx}
               isExpanded={isExpanded}
-              startLabel={startLabel}
-              endLabel={endLabel}
               sday={sday}
               timetableState={timetableState}
               timetableHidden={!!groupTimetableHidden[groupKey]}

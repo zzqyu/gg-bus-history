@@ -9,8 +9,6 @@ interface GroupCardProps {
   group: Group
   index: number
   isExpanded: boolean
-  startLabel: string
-  endLabel: string
   prefetchingBusDuration: boolean
   prefetchedBusDurationText: string | null
   sday: string
@@ -36,8 +34,6 @@ export default function GroupCard({
   group,
   index,
   isExpanded,
-  startLabel,
-  endLabel,
   prefetchingBusDuration,
   prefetchedBusDurationText,
   sday,
@@ -59,6 +55,11 @@ export default function GroupCard({
 }: GroupCardProps) {
   const walkStartMin = Math.max(0, Math.round(Number(group.walk?.startToBoard?.timeSec || 0) / 60))
   const walkEndMin = Math.max(0, Math.round(Number(group.walk?.alightToEnd?.timeSec || 0) / 60))
+  const walkStartDistance = Math.max(0, Math.round(Number(group.walk?.startToBoard?.distance || 0)))
+  const walkEndDistance = Math.max(0, Math.round(Number(group.walk?.alightToEnd?.distance || 0)))
+
+  const startWalkKakaoUrl = group.walk?.startToBoard?.kakaoUrl || null
+  const endWalkKakaoUrl = group.walk?.alightToEnd?.kakaoUrl || null
 
   function parseDisplayMinutes(text: string): number | null {
     const m = String(text).match(/^(\d+):(\d{2})$/)
@@ -71,6 +72,12 @@ export default function GroupCard({
     const h = Math.floor(safe / 60)
     const m = safe % 60
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+  }
+
+  function formatDistanceText(distanceM: number): string {
+    if (!Number.isFinite(distanceM) || distanceM <= 0) return '0m'
+    if (distanceM >= 1000) return `${(distanceM / 1000).toFixed(2)}km`
+    return `${distanceM}m`
   }
 
   const sourceEntries = (combined && combined.length > 0) ? combined : (prefetchedCombined || [])
@@ -113,16 +120,20 @@ export default function GroupCard({
     .filter((v): v is NonNullable<typeof v> => !!v)
 
   const selectableCandidates = timelineCandidates.filter((x) => x.boardMin >= earliestBoardMinutes)
-  const bestTimeline = (selectableCandidates.length ? selectableCandidates : timelineCandidates)
-    .sort((a, b) => (a.alightMin - b.alightMin) || (a.boardMin - b.boardMin))[0]
+  const hasFutureService = selectableCandidates.length > 0
+  const hasAnyTimeline = timelineCandidates.length > 0
+  const serviceEnded = hasAnyTimeline && !hasFutureService
+  const bestTimeline = hasFutureService
+    ? selectableCandidates.sort((a, b) => (a.alightMin - b.alightMin) || (a.boardMin - b.boardMin))[0]
+    : null
 
   const bestRouteId = bestTimeline?.entry?.routeId ? String(bestTimeline.entry.routeId) : null
   const bestBusMin = bestTimeline ? Math.max(0, bestTimeline.alightMin - bestTimeline.boardMin) : null
-  const departText = bestTimeline ? formatMinuteText(bestTimeline.boardMin - walkStartMin) : '-'
-  const boardText = bestTimeline ? bestTimeline.boardText : '-'
-  const alightText = bestTimeline ? bestTimeline.alightText : '-'
-  const arriveText = bestTimeline ? formatMinuteText(bestTimeline.alightMin + walkEndMin) : '-'
-  const totalMinText = bestBusMin == null ? '-' : `${bestBusMin + walkStartMin + walkEndMin}분`
+  const departText = serviceEnded ? '운행종료' : (bestTimeline ? formatMinuteText(bestTimeline.boardMin - walkStartMin) : '-')
+  const boardText = serviceEnded ? '운행종료' : (bestTimeline ? bestTimeline.boardText : '-')
+  const alightText = serviceEnded ? '운행종료' : (bestTimeline ? bestTimeline.alightText : '-')
+  const arriveText = serviceEnded ? '운행종료' : (bestTimeline ? formatMinuteText(bestTimeline.alightMin + walkEndMin) : '-')
+  const totalMinText = serviceEnded ? '운행종료' : (bestBusMin == null ? '-' : `${bestBusMin + walkStartMin + walkEndMin}분`)
 
   const WalkIcon = (
     <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
@@ -153,19 +164,19 @@ export default function GroupCard({
       }}
     >
       {/* Card header */}
-      <div className="mb-2 flex w-full items-center justify-between">
+      <div className="relative mb-2 flex w-full items-center justify-between">
         <span className="rounded-[10px] bg-gray-900 px-2 py-0.5 text-xs font-bold text-white">
           결과 {index + 1}
         </span>
 
-        <div className="mt-0.5 text-[11px] text-slate-700 text-center font-semibold">
+        <div className="pointer-events-none absolute left-1/2 top-1/2 w-max -translate-x-1/2 -translate-y-1/2 text-[11px] text-slate-700 text-center font-semibold whitespace-nowrap">
           예상 총 소요 {totalMinText}
         </div>
         <button
           type="button"
           title={timetableState && !timetableHidden ? '시간표 닫기' : '통합 시간이력'}
           aria-label={timetableState && !timetableHidden ? '시간표 닫기' : '통합 시간이력'}
-          className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-300 bg-white hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-300 bg-white hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           disabled={!sday}
           onClick={(ev) => {
             ev.stopPropagation()
@@ -190,7 +201,24 @@ export default function GroupCard({
       </div>
 
       {/* Timeline */}
-      <div className="mt-1 rounded-lg border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-2.5">
+      <div className="rounded-lg border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-2.5">
+        <div className="grid grid-cols-[auto_minmax(0,0.7fr)_auto_minmax(0,2.2fr)_auto_minmax(0,0.7fr)_auto] items-start gap-1 text-[11px]">
+          <div className='w-[24px]' />
+          <div />
+          <div className="relative h-4">
+            <div className="absolute left-1/2 top-0 w-max max-w-[140px] -translate-x-1/2 truncate text-center text-slate-700" title={group.board.stationName}>
+              {group.board.stationName}
+            </div>
+          </div>
+          <div />
+          <div className="relative h-4">
+            <div className="absolute left-1/2 top-0 w-max max-w-[140px] -translate-x-1/2 truncate text-center text-slate-700" title={group.alight.stationName}>
+              {group.alight.stationName}
+            </div>
+          </div>
+          <div />
+          <div className='w-[24px]' />
+        </div>
         {/* 1줄: 그래프 */}
         <div className="grid grid-cols-[auto_minmax(0,0.7fr)_auto_minmax(0,2.2fr)_auto_minmax(0,0.7fr)_auto] items-center text-[11px] font-semibold text-slate-700">
           <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-600 text-white">{WalkIcon}</span>
@@ -206,32 +234,55 @@ export default function GroupCard({
                 <span>불러오는 중</span>
               </span>
             ) : (
-              bestBusMin != null ? `${bestBusMin}분` : busDurationText
+              serviceEnded ? '운행종료' : (bestBusMin != null ? `${bestBusMin}분` : busDurationText)
             )}
           </div>
           <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-600 text-white">{WalkIcon}</span>
           <div className="h-2.5 rounded-r bg-slate-300 flex items-center justify-center">{formatSecondsToMinuteText(group.walk?.alightToEnd?.timeSec)}</div>
           <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-600 text-white"></span>
         </div>
-
-        <div className="mt-1 grid grid-cols-[auto_minmax(0,0.7fr)_auto_minmax(0,2.2fr)_auto_minmax(0,0.7fr)_auto] items-start gap-1 text-[11px]">
-          <div />
-          <div />
-          <div className="relative h-4">
-            <div className="absolute left-1/2 top-0 w-max max-w-[140px] -translate-x-1/2 truncate text-center text-slate-700" title={group.board.stationName}>
-              {group.board.stationName}
-            </div>
-          </div>
-          <div />
-          <div className="relative h-4">
-            <div className="absolute left-1/2 top-0 w-max max-w-[140px] -translate-x-1/2 truncate text-center text-slate-700" title={group.alight.stationName}>
-              {group.alight.stationName}
-            </div>
-          </div>
-          <div />
-          <div />
+        <div className="-mt-0.5 grid grid-cols-[auto_minmax(0,0.7fr)_auto_minmax(0,2.2fr)_auto_minmax(0,0.7fr)_auto] items-center text-[10px] text-slate-500">
+          <div className="h-2.5 w-[24px] flex items-center justify-center"></div>
+          <div className="h-2.5 rounded-r flex items-center justify-center">{formatDistanceText(walkStartDistance)}{startWalkKakaoUrl && (
+            <a
+              href={startWalkKakaoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-4 w-4 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+              onClick={(ev) => ev.stopPropagation()}
+              title="출발지 → 탑승 정류장 도보 길찾기"
+              aria-label="출발지 → 탑승 정류장 도보 길찾기 (외부 링크)"
+            >
+              <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" aria-hidden="true">
+                <path d="M14 5h5v5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M10 14 19 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M19 14v5h-14v-14h5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </a>
+          )}</div>
+          <div className="h-2.5 w-[24px] flex items-center justify-center"></div>
+          <div className="h-2.5"></div>
+          <div className="h-2.5 w-[24px] flex items-center justify-center"></div>
+          <div className="h-2.5 rounded-r flex items-center justify-center">{formatDistanceText(walkEndDistance)}{endWalkKakaoUrl && (
+            <a
+              href={endWalkKakaoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-4 w-4 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+              onClick={(ev) => ev.stopPropagation()}
+              title="하차 정류장 → 도착지 도보 길찾기"
+              aria-label="하차 정류장 → 도착지 도보 길찾기 (외부 링크)"
+            >
+              <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" aria-hidden="true">
+                <path d="M14 5h5v5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M10 14 19 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M19 14v5h-14v-14h5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </a>
+          )}</div>
+          <div className="h-2.5 w-[24px] flex items-center justify-center"></div>
         </div>
-        <div className="grid grid-cols-[auto_minmax(0,0.7fr)_auto_minmax(0,2.2fr)_auto_minmax(0,0.7fr)_auto] items-start text-[11px] text-slate-700">
+        <div className="-mt-0.1 grid grid-cols-[auto_minmax(0,0.7fr)_auto_minmax(0,2.2fr)_auto_minmax(0,0.7fr)_auto] items-start text-[11px] text-slate-700">
           <div className="text-center">{departText}</div>
           <div />
           <div className="text-center">{boardText}</div>
@@ -241,7 +292,7 @@ export default function GroupCard({
           <div className="text-center whitespace-nowrap">{arriveText}</div>
         </div>
 
-        <div className="mt-2 items-start gap-1 text-[11px]">
+        <div className="items-start gap-1 text-[11px]">
           <div ref={badgeRowRef} className="flex flex-wrap items-center justify-center gap-1">
             {visibleRouteBadges.map((r) => (
               (() => {
