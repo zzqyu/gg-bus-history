@@ -8,6 +8,7 @@ import requests
 from requests.exceptions import RequestException
 import logging
 import time
+import os
 
 app = FastAPI()
 
@@ -269,6 +270,126 @@ def prefetch_past_arrivals(fetch_keys, max_workers=12):
 
     with ThreadPoolExecutor(max_workers=min(max_workers, len(to_fetch))) as executor:
         list(executor.map(_do, to_fetch))
+
+
+def estimate_walk_time_seconds(distance_m: float) -> int:
+    """Fallback walking time estimate (4km/h)."""
+    try:
+        d = float(distance_m)
+    except Exception:
+        d = 0.0
+    if d <= 0:
+        return 0
+    speed_mps = 4000.0 / 3600.0
+    return int(round(d / speed_mps))
+
+
+def fetch_pedestrian_route(start_lon, start_lat, end_lon, end_lat, start_name='출발지', end_name='도착지', include_path=False):
+    """Call TMAP pedestrian API and return walk distance/time (+ path if requested)."""
+    try:
+        s_lon = float(start_lon)
+        s_lat = float(start_lat)
+        e_lon = float(end_lon)
+        e_lat = float(end_lat)
+    except Exception:
+        return None
+
+    # identical point shortcut
+    if abs(s_lon - e_lon) < 1e-9 and abs(s_lat - e_lat) < 1e-9:
+        return {
+            'distance': 0,
+            'timeSec': 0,
+            'path': [[s_lon, s_lat], [e_lon, e_lat]] if include_path else None,
+        }
+
+    app_key = (os.getenv('TMAP_APP_KEY') or '').strip()
+    if not app_key:
+        return None
+
+    cache_key = (
+        'pedestrianRoute',
+        round(s_lon, 6), round(s_lat, 6),
+        round(e_lon, 6), round(e_lat, 6),
+        bool(include_path),
+    )
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    url = 'https://apis.openapi.sk.com/tmap/routes/pedestrian?version=1&format=json'
+    headers = {
+        'accept': 'application/json',
+        'content-type': 'application/json',
+        'appKey': app_key,
+    }
+    payload = {
+        'startX': str(s_lon),
+        'startY': str(s_lat),
+        'endX': str(e_lon),
+        'endY': str(e_lat),
+        'startName': str(start_name or '출발지'),
+        'endName': str(end_name or '도착지'),
+        'reqCoordType': 'WGS84GEO',
+        'resCoordType': 'WGS84GEO',
+        'searchOption': '0',
+    }
+
+    try:
+        r = requests.post(url, headers=headers, json=payload, timeout=7)
+        r.raise_for_status()
+        doc = r.json() or {}
+        features = doc.get('features') or []
+
+        total_distance = None
+        total_time = None
+        path_coords = []
+
+        for f in features:
+            if not isinstance(f, dict):
+                continue
+            props = f.get('properties') or {}
+            if total_distance is None and props.get('totalDistance') is not None:
+                try:
+                    total_distance = int(float(props.get('totalDistance')))
+                except Exception:
+                    pass
+            if total_time is None and props.get('totalTime') is not None:
+                try:
+                    total_time = int(float(props.get('totalTime')))
+                except Exception:
+                    pass
+
+            if include_path:
+                geo = f.get('geometry') or {}
+                gtype = str(geo.get('type') or '')
+                if gtype != 'LineString':
+                    continue
+                coords = geo.get('coordinates') or []
+                for c in coords:
+                    if not isinstance(c, (list, tuple)) or len(c) < 2:
+                        continue
+                    try:
+                        lon = float(c[0])
+                        lat = float(c[1])
+                        path_coords.append([lon, lat])
+                    except Exception:
+                        continue
+
+        if total_distance is None:
+            total_distance = int(round(haversine(s_lat, s_lon, e_lat, e_lon)))
+        if total_time is None:
+            total_time = estimate_walk_time_seconds(total_distance)
+
+        out = {
+            'distance': total_distance,
+            'timeSec': total_time,
+            'path': path_coords if include_path else None,
+        }
+        cache_set(cache_key, out)
+        return out
+    except Exception as e:
+        logger.warning(f"fetch_pedestrian_route failed: {e}")
+        return None
 
 
 def build_timetables_for_routes(routes, board_station_id: str, alight_station_id: str, sday_norm: str):
@@ -884,6 +1005,52 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
         if 'orderGapScore' in g:
             del g['orderGapScore']
 
+    # attach walking info for each result (start->board, alight->end)
+    for g in final_groups:
+        board = g.get('board') or {}
+        alight = g.get('alight') or {}
+
+        b_lon = board.get('lon')
+        b_lat = board.get('lat')
+        a_lon = alight.get('lon')
+        a_lat = alight.get('lat')
+
+        start_walk = fetch_pedestrian_route(
+            ax, ay, b_lon, b_lat,
+            start_name='출발지',
+            end_name=str(board.get('stationName') or '탑승 정류장'),
+            include_path=False,
+        )
+        end_walk = fetch_pedestrian_route(
+            a_lon, a_lat, bx, by,
+            start_name=str(alight.get('stationName') or '하차 정류장'),
+            end_name='도착지',
+            include_path=False,
+        )
+
+        start_distance = int(round(float(board.get('dist') or 0)))
+        end_distance = int(round(float(alight.get('dist') or 0)))
+        start_time = estimate_walk_time_seconds(start_distance)
+        end_time = estimate_walk_time_seconds(end_distance)
+
+        sw_dist = int(start_walk.get('distance')) if isinstance(start_walk, dict) and start_walk.get('distance') is not None else start_distance
+        sw_time = int(start_walk.get('timeSec')) if isinstance(start_walk, dict) and start_walk.get('timeSec') is not None else start_time
+        ew_dist = int(end_walk.get('distance')) if isinstance(end_walk, dict) and end_walk.get('distance') is not None else end_distance
+        ew_time = int(end_walk.get('timeSec')) if isinstance(end_walk, dict) and end_walk.get('timeSec') is not None else end_time
+
+        g['walk'] = {
+            'startToBoard': {
+                'distance': sw_dist,
+                'timeSec': sw_time,
+            },
+            'alightToEnd': {
+                'distance': ew_dist,
+                'timeSec': ew_time,
+            },
+            'totalDistance': sw_dist + ew_dist,
+            'totalTimeSec': sw_time + ew_time,
+        }
+
     sday_norm = sday.strip() if sday else None
 
     # NOTE: timetable fetching removed from findRoutes. Use `/groupTimetable` endpoint to fetch
@@ -1057,6 +1224,19 @@ def all_groups_timetable(ax: float, ay: float, bx: float, by: float, radius: int
     for g in groups:
         board = g.get('board') or {}
         alight = g.get('alight') or {}
+        walk = g.get('walk') or {}
+        walk_start = walk.get('startToBoard') or {}
+        walk_end = walk.get('alightToEnd') or {}
+        try:
+            walk_to_board_sec = int(walk_start.get('timeSec') or 0)
+        except Exception:
+            walk_to_board_sec = 0
+        try:
+            walk_from_alight_sec = int(walk_end.get('timeSec') or 0)
+        except Exception:
+            walk_from_alight_sec = 0
+        walk_total_sec = walk_to_board_sec + walk_from_alight_sec
+
         board_station_id = str(board.get('stationId'))
         alight_station_id = str(alight.get('stationId'))
         gt_routes = g.get('routes') or []
@@ -1106,6 +1286,9 @@ def all_groups_timetable(ax: float, ay: float, bx: float, by: float, radius: int
                 'inferred': e.get('inferred'),
                 'inference_method': e.get('inference_method'),
                 'inference_confidence': e.get('inference_confidence'),
+                'walkToBoardSec': walk_to_board_sec,
+                'walkFromAlightSec': walk_from_alight_sec,
+                'walkTotalSec': walk_total_sec,
                 '_bt_parsed': bt,
                 '_order_gap': order_gap,
                 '_group_score': group_score,
@@ -1169,3 +1352,40 @@ def all_groups_timetable(ax: float, ay: float, bx: float, by: float, radius: int
     }
     cache_set(cache_key, out)
     return out
+
+
+@app.get('/walkRoute')
+def walk_route(ax: float, ay: float, boardx: float, boardy: float, alightx: float, alighty: float, bx: float, by: float):
+    """Return pedestrian guide for start->board and alight->end, including polyline paths."""
+    start_leg = fetch_pedestrian_route(
+        ax, ay, boardx, boardy,
+        start_name='출발지',
+        end_name='탑승 정류장',
+        include_path=True,
+    )
+    end_leg = fetch_pedestrian_route(
+        alightx, alighty, bx, by,
+        start_name='하차 정류장',
+        end_name='도착지',
+        include_path=True,
+    )
+
+    def _fallback(s_lon, s_lat, e_lon, e_lat):
+        dist = int(round(haversine(float(s_lat), float(s_lon), float(e_lat), float(e_lon))))
+        return {
+            'distance': dist,
+            'timeSec': estimate_walk_time_seconds(dist),
+            'path': [[float(s_lon), float(s_lat)], [float(e_lon), float(e_lat)]],
+        }
+
+    if not start_leg:
+        start_leg = _fallback(ax, ay, boardx, boardy)
+    if not end_leg:
+        end_leg = _fallback(alightx, alighty, bx, by)
+
+    return {
+        'startToBoard': start_leg,
+        'alightToEnd': end_leg,
+        'totalTimeSec': int(start_leg.get('timeSec') or 0) + int(end_leg.get('timeSec') or 0),
+        'totalDistance': int(start_leg.get('distance') or 0) + int(end_leg.get('distance') or 0),
+    }
