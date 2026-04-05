@@ -1,7 +1,7 @@
 import React from 'react'
 import { Group, GroupTimetableState, RouteBadgeInfo, TimetableEntry } from '../types'
 import { getGroupRouteBadges } from '../utils/routeUtils'
-import { formatDisplayTime, formatDuration } from '../utils/timeUtils'
+import { formatDisplayTime, formatDuration, formatSecondsToMinuteText } from '../utils/timeUtils'
 import { getRouteNameStyle } from '../utils/styleUtils'
 
 interface GroupTimetableProps {
@@ -116,7 +116,7 @@ export default function GroupTimetable({
           <table className="w-full border-collapse">
             <thead>
               <tr>
-                {['노선번호', '탑승시간', '하차시간', '소요시간'].map((h) => (
+                {['노선 번호', '탑승 시간', '하차 시간', '버스', '도보', '총'].map((h) => (
                   <th
                     key={h}
                     className="sticky top-[160px] z-[2] border-b border-amber-400 bg-amber-100 px-1 py-1.5 text-left text-xs font-semibold"
@@ -155,6 +155,21 @@ export default function GroupTimetable({
                   </td>
                   <td className="border-b border-amber-300 px-1 py-1.5 text-xs">
                     {formatDuration(e.boardTime, e.alightTime)}
+                  </td>
+                  <td className="border-b border-amber-300 px-1 py-1.5 text-xs whitespace-nowrap">
+                    {formatSecondsToMinuteText(e.walkTotalSec)}
+                  </td>
+                  <td className="border-b border-amber-300 px-1 py-1.5 text-xs whitespace-nowrap">
+                    {(() => {
+                      const busMinText = formatDuration(e.boardTime, e.alightTime)
+                      const walkSec = Number(e.walkTotalSec || 0)
+                      if (busMinText === '-') return '-'
+                      const m = String(busMinText).match(/^(\d+):(\d{2})$/)
+                      if (!m) return '-'
+                      const busMin = Number(m[1]) * 60 + Number(m[2])
+                      const walkMin = Math.round(walkSec / 60)
+                      return `${busMin + walkMin}분`
+                    })()}
                   </td>
                 </tr>
               ))}

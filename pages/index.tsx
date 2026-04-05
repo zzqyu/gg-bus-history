@@ -54,6 +54,7 @@ export default function Home() {
   const [locatingStart, setLocatingStart] = useState(false)
   const [locatingEnd, setLocatingEnd] = useState(false)
   const [locatingMap, setLocatingMap] = useState(false)
+  const [walkRouteByGroupKey, setWalkRouteByGroupKey] = useState<Record<string, any>>({})
 
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
@@ -65,6 +66,7 @@ export default function Home() {
   const circlesRef = useRef<{ start: any; end: any }>({ start: null, end: null })
   const groupStationMarkersRef = useRef<any[]>([])
   const groupStationOverlaysRef = useRef<any[]>([])
+  const walkPolylinesRef = useRef<any[]>([])
   const allGroupsTableScrollRef = useRef<HTMLDivElement>(null)
   const groupTableScrollRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const routeBadgeRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -189,6 +191,36 @@ export default function Home() {
     groupStationOverlaysRef.current = []
   }
 
+  function clearWalkPolylines() {
+    for (const line of walkPolylinesRef.current) {
+      line.setMap(null)
+    }
+    walkPolylinesRef.current = []
+  }
+
+  function renderWalkPolylines(pathA: number[][] = [], pathB: number[][] = []) {
+    const kakao = (window as any).kakao
+    if (!mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
+    clearWalkPolylines()
+    const draw = (coords: number[][], color: string) => {
+      const points = (coords || [])
+        .filter((c) => Array.isArray(c) && c.length >= 2)
+        .map((c) => new kakao.maps.LatLng(Number(c[1]), Number(c[0])))
+      if (points.length < 2) return
+      const line = new kakao.maps.Polyline({
+        path: points,
+        strokeWeight: 5,
+        strokeColor: color,
+        strokeOpacity: 0.85,
+        strokeStyle: 'shortdot',
+      })
+      line.setMap(mapRef.current)
+      walkPolylinesRef.current.push(line)
+    }
+    draw(pathA, '#2563eb')
+    draw(pathB, '#ef4444')
+  }
+
   function renderGroupStationOverlays(groups: Group[]) {
     const kakao = (window as any).kakao
     if (!mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
@@ -286,6 +318,7 @@ export default function Home() {
     setAllGroupsHighlightedRowIndex(-1)
     setGroupHighlightedRowIndexes({})
     setAllGroupsSelectedRouteId(null)
+    clearWalkPolylines()
     if (!options.keepExpandedGroup) setExpandedGroupKey(null)
   }
 
@@ -563,6 +596,29 @@ export default function Home() {
     }
   }
 
+  async function fetchWalkRouteForGroup(g: Group): Promise<void> {
+    const key = getGroupKey(g)
+    const cached = walkRouteByGroupKey[key]
+    if (cached) return
+    try {
+      const params = new URLSearchParams({
+        ax,
+        ay,
+        boardx: String(g.board.lon),
+        boardy: String(g.board.lat),
+        alightx: String(g.alight.lon),
+        alighty: String(g.alight.lat),
+        bx,
+        by,
+      })
+      const r = await fetch('/api/walkRoute?' + params.toString())
+      const j = await r.json()
+      setWalkRouteByGroupKey((prev) => ({ ...prev, [key]: j }))
+    } catch {
+      // ignore
+    }
+  }
+
   async function fetchAllGroupsTimetable() {
     // Always reset route filter when the table is opened
     setAllGroupsSelectedRouteId(null)
@@ -709,6 +765,10 @@ export default function Home() {
   function getCombinedForGroup(groupKey: string): TimetableEntry[] {
     const gt = groupTimetables[groupKey]
     if (!gt || !gt.data) return []
+    const grp = (result && result.groups ? result.groups : []).find((gg) => getGroupKey(gg) === groupKey)
+    const walkToBoardSec = Number(grp?.walk?.startToBoard?.timeSec || 0)
+    const walkFromAlightSec = Number(grp?.walk?.alightToEnd?.timeSec || 0)
+    const walkTotalSec = Number(grp?.walk?.totalTimeSec || (walkToBoardSec + walkFromAlightSec) || 0)
     if (gt.selectedRouteId) {
       const tt = (gt.data.timetables || []).find((x) => String(x.routeId) === String(gt.selectedRouteId))
       if (tt && tt.entries) {
@@ -720,11 +780,19 @@ export default function Home() {
           orderGap: tt.orderGap,
           boardOrder: tt.boardOrder,
           alightOrder: tt.alightOrder,
+          walkToBoardSec,
+          walkFromAlightSec,
+          walkTotalSec,
         }))
       }
       return []
     }
-    return gt.data.combined || []
+    return (gt.data.combined || []).map((e) => ({
+      ...e,
+      walkToBoardSec,
+      walkFromAlightSec,
+      walkTotalSec,
+    }))
   }
 
   function onGroupCardClick(e: React.MouseEvent, groupKey: string) {
@@ -734,7 +802,10 @@ export default function Home() {
     setExpandedGroupKey((prev) => (prev === groupKey ? null : groupKey))
     if (willExpand && sday) {
       const grp = (result && result.groups ? result.groups : []).find((gg) => getGroupKey(gg) === groupKey)
-      if (grp) fetchGroupTimetable(grp)
+      if (grp) {
+        fetchGroupTimetable(grp)
+        fetchWalkRouteForGroup(grp)
+      }
     }
   }
 
@@ -897,6 +968,28 @@ export default function Home() {
     if (!selected) { renderGroupStationOverlays(result.groups || []); return }
     renderGroupStationOverlays([selected])
   }, [result, expandedGroupKey])
+
+  useEffect(() => {
+    if (!mapRef.current) return
+    if (!result || result.loading || result.error || !expandedGroupKey) {
+      clearWalkPolylines()
+      return
+    }
+    const selected = (result.groups || []).find((g) => getGroupKey(g) === expandedGroupKey)
+    if (!selected) {
+      clearWalkPolylines()
+      return
+    }
+    const wr = walkRouteByGroupKey[expandedGroupKey]
+    if (!wr) {
+      fetchWalkRouteForGroup(selected).catch(() => {})
+      clearWalkPolylines()
+      return
+    }
+    const p1 = (wr.startToBoard && wr.startToBoard.path) || []
+    const p2 = (wr.alightToEnd && wr.alightToEnd.path) || []
+    renderWalkPolylines(p1, p2)
+  }, [result, expandedGroupKey, walkRouteByGroupKey])
 
   useEffect(() => {
     if (typeof window === 'undefined') return

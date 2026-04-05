@@ -1,7 +1,7 @@
 import React from 'react'
 import { AllGroupsTimetableState, TimetableEntry } from '../types'
 import { compareRoutes } from '../utils/routeUtils'
-import { formatDisplayTime, formatDuration } from '../utils/timeUtils'
+import { formatDisplayTime, formatDuration, formatSecondsToMinuteText } from '../utils/timeUtils'
 import { getRouteNameStyle } from '../utils/styleUtils'
 
 interface AllGroupsTimetableProps {
@@ -117,8 +117,8 @@ export default function AllGroupsTimetable({
       <div ref={tableScrollRef} className="mt-1.5">
         <table className="w-full border-collapse">
           <thead>
-            <tr>
-              {['노선번호', '탑승정류장', '하차정류장', '탑승시간', '하차시간', '소요시간'].map((h) => (
+              <tr>
+              {['노선 번호', '탑승 정류장', '하차 정류장', '탑승 시간', '하차 시간', '버스', '도보', '총'].map((h) => (
                 <th
                   key={h}
                   className="sticky top-[160px] z-[2] border-b border-slate-300 bg-white px-1 py-1.5 text-left text-xs font-semibold"
@@ -161,6 +161,21 @@ export default function AllGroupsTimetable({
                 </td>
                 <td className="border-b border-slate-300 px-1 py-1.5 text-xs">
                   {formatDuration(e.boardTime, e.alightTime)}
+                </td>
+                <td className="border-b border-slate-300 px-1 py-1.5 text-xs whitespace-nowrap">
+                  {formatSecondsToMinuteText(e.walkTotalSec)}
+                </td>
+                <td className="border-b border-slate-300 px-1 py-1.5 text-xs whitespace-nowrap">
+                  {(() => {
+                    const busMinText = formatDuration(e.boardTime, e.alightTime)
+                    const walkSec = Number(e.walkTotalSec || 0)
+                    if (busMinText === '-') return '-'
+                    const m = String(busMinText).match(/^(\d+):(\d{2})$/)
+                    if (!m) return '-'
+                    const busMin = Number(m[1]) * 60 + Number(m[2])
+                    const walkMin = Math.round(walkSec / 60)
+                    return `${busMin + walkMin}분`
+                  })()}
                 </td>
               </tr>
             ))}

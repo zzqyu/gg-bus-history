@@ -1,6 +1,7 @@
 import React from 'react'
 import { Group, GroupTimetableState, RouteBadgeInfo, TimetableEntry } from '../types'
 import { getRouteNameStyle } from '../utils/styleUtils'
+import { formatSecondsToMinuteText } from '../utils/timeUtils'
 import GroupTimetable from './GroupTimetable'
 
 interface GroupCardProps {
@@ -65,6 +66,11 @@ export default function GroupCard({
       </div>
       <div className="text-sm">
         <strong>하차:</strong> {group.alight.stationName} ({Math.round(group.alight.dist)}m)
+      </div>
+      <div className="mt-0.5 text-sm text-slate-700">
+        <strong>도보:</strong>{' '}
+        출발→탑승 {formatSecondsToMinuteText(group.walk?.startToBoard?.timeSec)} / 하차→도착 {formatSecondsToMinuteText(group.walk?.alightToEnd?.timeSec)}
+        {' '}(총 {formatSecondsToMinuteText(group.walk?.totalTimeSec)})
       </div>
 
       {/* Route badges */}

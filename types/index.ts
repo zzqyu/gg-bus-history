@@ -16,6 +16,18 @@ export interface Group {
   board: StationResult
   alight: StationResult
   routes: RouteInfo[]
+  walk?: {
+    startToBoard?: {
+      distance?: number
+      timeSec?: number
+    }
+    alightToEnd?: {
+      distance?: number
+      timeSec?: number
+    }
+    totalDistance?: number
+    totalTimeSec?: number
+  }
 }
 
 export interface TimetableEntry {
@@ -33,6 +45,9 @@ export interface TimetableEntry {
   inferred?: boolean
   inference_method?: string | null
   inference_confidence?: string | null
+  walkToBoardSec?: number
+  walkFromAlightSec?: number
+  walkTotalSec?: number
 }
 
 export interface RouteTimetable {
