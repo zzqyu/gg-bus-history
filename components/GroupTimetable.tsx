@@ -48,27 +48,44 @@ export default function GroupTimetable({
   const routeBadges: RouteBadgeInfo[] = getGroupRouteBadges(group)
 
   return (
-    <div className="mt-2.5 rounded border border-amber-200 bg-amber-50 p-2.5">
+    <div className="mt-2.5 rounded border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-2.5">
       {/* Sticky header */}
-      <div className="sticky top-[69px] z-[3] bg-amber-50 pb-1">
-        <div className="flex items-center gap-2">
+      <div className="sticky top-[69px] z-[3] bg-gradient-to-b from-slate-50 to-white pb-1">
+        <div className="flex items-center gap-2 justify-between">
           <div>
-            <strong>통합 시간이력:</strong> {combined.length}회
+            <strong>운행 횟수:</strong> {combined.length}회
           </div>
-          <button
-            type="button"
-            className="rounded border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-50"
-            onClick={onMoveToCurrentTime}
-          >
-            현재시간
-          </button>
-          <button
-            type="button"
-            className="rounded border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-50"
-            onClick={onFold}
-          >
-            테이블 접기
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              className="rounded border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-50"
+              onClick={onMoveToCurrentTime}
+            >
+              현재시간
+            </button>
+            <button
+              type="button"
+              title="테이블 접기"
+              aria-label="테이블 접기"
+              className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-300 bg-white hover:bg-slate-50"
+              onClick={onFold}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M6 15l6-6 6 6" />
+              </svg>
+            </button>
+          </div>
+          
         </div>
 
         {/* Route filter badges */}
@@ -116,10 +133,10 @@ export default function GroupTimetable({
           <table className="w-full border-collapse">
             <thead>
               <tr>
-                {['노선번호', '탑승시간', '하차시간', '소요시간'].map((h) => (
+                {['노선 번호', '탑승', '하차', '소요 시간'].map((h) => (
                   <th
                     key={h}
-                    className="sticky top-[160px] z-[2] border-b border-amber-400 bg-amber-100 px-1 py-1.5 text-left text-xs font-semibold"
+                    className="sticky top-[160px] z-[2] border-b border-indigo-300 bg-indigo-100 px-1 py-1.5 text-left text-xs font-semibold"
                   >
                     {h}
                   </th>
@@ -131,17 +148,17 @@ export default function GroupTimetable({
                 <tr
                   data-row-index={cIdx}
                   key={String(e.vehId || '') + '-' + cIdx}
-                  className={highlightedRowIndex === cIdx ? 'bg-amber-100' : undefined}
+                  className={highlightedRowIndex === cIdx ? 'bg-indigo-100' : undefined}
                 >
-                  <td className="border-b border-amber-300 px-1 py-1.5 text-xs whitespace-nowrap">
+                  <td className="border-b border-gray-300 px-1 py-1.5 text-xs whitespace-nowrap">
                     <span style={getRouteNameStyle(e.routeTypeCd)}>
                       {e.routeName || e.routeId || '-'}
                     </span>
                   </td>
-                  <td className="border-b border-amber-300 px-1 py-1.5 text-xs whitespace-nowrap">
+                  <td className="border-b border-gray-300 px-1 py-1.5 text-xs whitespace-nowrap">
                     {formatDisplayTime(e.boardTime, sday)}
                   </td>
-                  <td className="border-b border-amber-300 px-1 py-1.5 text-xs whitespace-nowrap">
+                  <td className="border-b border-gray-300 px-1 py-1.5 text-xs whitespace-nowrap">
                     <span>{formatDisplayTime(e.alightTime, sday)}</span>
                     {e.inferred && (
                       <span
@@ -153,7 +170,7 @@ export default function GroupTimetable({
                       </span>
                     )}
                   </td>
-                  <td className="border-b border-amber-300 px-1 py-1.5 text-xs">
+                  <td className="border-b border-gray-300 px-1 py-1.5 text-xs">
                     {formatDuration(e.boardTime, e.alightTime)}
                   </td>
                 </tr>
@@ -162,16 +179,6 @@ export default function GroupTimetable({
           </table>
         </div>
       )}
-
-      {/* Per-route summary */}
-      <div className="flex gap-1 mt-4">
-        {(state.data?.timetables || []).map((tt, tIdx) => (
-          <div key={String(tt.routeId) + '-' + tIdx} className="mt-1.5 text-sm">
-            <span style={getRouteNameStyle(tt.routeTypeCd)}>{tt.routeName}</span> :{' '}
-            {(tt.entries || []).length}회
-          </div>
-        ))}
-      </div>
     </div>
   )
 }

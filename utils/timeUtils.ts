@@ -72,3 +72,10 @@ export function formatDisplayTime(dateTime?: string, queryDay?: string): string 
 
   return String(hour).padStart(2, '0') + ':' + minute
 }
+
+export function formatSecondsToMinuteText(seconds?: number): string {
+  const sec = Number(seconds)
+  if (!Number.isFinite(sec) || sec < 0) return '-'
+  const min = Math.max(0, Math.round(sec / 60))
+  return `${min}분`
+}

@@ -22,6 +22,13 @@ import ResultsSection from '../components/ResultsSection'
 import SharePreviewModal from '../components/SharePreviewModal'
 import Image from 'next/image'
 
+// Dev StrictMode(초기 마운트 이중 실행)에서도 동일 쿼리의 중복 호출을 막기 위한
+// 브라우저 전역 in-flight/cache 저장소
+type AllGroupsGlobalStore = {
+  inFlight?: Record<string, Promise<any>>
+  cache?: Record<string, any>
+}
+
 export default function Home() {
   const [ax, setAx] = useState('')
   const [ay, setAy] = useState('')
@@ -50,10 +57,11 @@ export default function Home() {
   const [groupTimetableHidden, setGroupTimetableHidden] = useState<Record<string, boolean>>({})
   const [allGroupsHighlightedRowIndex, setAllGroupsHighlightedRowIndex] = useState(-1)
   const [groupHighlightedRowIndexes, setGroupHighlightedRowIndexes] = useState<Record<string, number>>({})
-  const [allGroupsSelectedRouteId, setAllGroupsSelectedRouteId] = useState<string | null>(null)
+  const [allGroupsSelectedRouteIds, setAllGroupsSelectedRouteIds] = useState<string[]>([])
   const [locatingStart, setLocatingStart] = useState(false)
   const [locatingEnd, setLocatingEnd] = useState(false)
   const [locatingMap, setLocatingMap] = useState(false)
+  const [mapReadyTick, setMapReadyTick] = useState(0)
 
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
@@ -65,10 +73,56 @@ export default function Home() {
   const circlesRef = useRef<{ start: any; end: any }>({ start: null, end: null })
   const groupStationMarkersRef = useRef<any[]>([])
   const groupStationOverlaysRef = useRef<any[]>([])
+  const accessLinePolylinesRef = useRef<any[]>([])
+  const busRoutePolylinesRef = useRef<any[]>([])
+  const busRouteBadgeOverlaysRef = useRef<any[]>([])
+  const routeLinePathByRouteIdRef = useRef<Record<string, number[][]>>({})
+  const routeLineRenderTokenRef = useRef(0)
   const allGroupsTableScrollRef = useRef<HTMLDivElement>(null)
   const groupTableScrollRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const routeBadgeRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const resultsSectionRef = useRef<HTMLDivElement>(null)
   const defaultMapCenter = { lon: 127.053749, lat: 37.289522 }
+
+  function buildAllGroupsTimetableQueryString(): string {
+    const params = new URLSearchParams({ ax, ay, bx, by, aradius: startRadius, bradius: endRadius })
+    if (sday) params.set('sday', sday)
+    return params.toString()
+  }
+
+  async function requestAllGroupsTimetableOnce(): Promise<any> {
+    const query = buildAllGroupsTimetableQueryString()
+    if (typeof window !== 'undefined') {
+      const w = window as Window & { __allGroupsGlobalStore?: AllGroupsGlobalStore }
+      if (!w.__allGroupsGlobalStore) w.__allGroupsGlobalStore = {}
+      if (!w.__allGroupsGlobalStore.inFlight) w.__allGroupsGlobalStore.inFlight = {}
+      if (!w.__allGroupsGlobalStore.cache) w.__allGroupsGlobalStore.cache = {}
+
+      const cached = w.__allGroupsGlobalStore.cache[query]
+      if (cached) return cached
+
+      const inFlight = w.__allGroupsGlobalStore.inFlight[query]
+      if (inFlight) return inFlight
+
+      const p = fetch('/api/allGroupsTimetable?' + query)
+        .then((r) => r.json())
+        .then((j) => {
+          w.__allGroupsGlobalStore!.cache![query] = j
+          return j
+        })
+        .finally(() => {
+          if (w.__allGroupsGlobalStore && w.__allGroupsGlobalStore.inFlight) {
+            delete w.__allGroupsGlobalStore.inFlight[query]
+          }
+        })
+
+      w.__allGroupsGlobalStore.inFlight[query] = p
+      return p
+    }
+
+    const r = await fetch('/api/allGroupsTimetable?' + query)
+    return r.json()
+  }
 
   // ─── Utility helpers ───────────────────────────────────────────────
 
@@ -188,6 +242,236 @@ export default function Home() {
     groupStationOverlaysRef.current = []
   }
 
+  function clearBusRoutePolylines() {
+    for (const line of busRoutePolylinesRef.current) {
+      line.setMap(null)
+    }
+    for (const ov of busRouteBadgeOverlaysRef.current) {
+      ov.setMap(null)
+    }
+    busRoutePolylinesRef.current = []
+    busRouteBadgeOverlaysRef.current = []
+  }
+
+  function clearAccessLines() {
+    for (const line of accessLinePolylinesRef.current) {
+      line.setMap(null)
+    }
+    accessLinePolylinesRef.current = []
+  }
+
+  function renderAccessLines(g: Group) {
+    const kakao = (window as any).kakao
+    if (!mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
+    const startLng = parseCoordValue(ax)
+    const startLat = parseCoordValue(ay)
+    const endLng = parseCoordValue(bx)
+    const endLat = parseCoordValue(by)
+    const boardLng = parseCoordValue(g.board?.lon)
+    const boardLat = parseCoordValue(g.board?.lat)
+    const alightLng = parseCoordValue(g.alight?.lon)
+    const alightLat = parseCoordValue(g.alight?.lat)
+    const nums = [startLng, startLat, endLng, endLat, boardLng, boardLat, alightLng, alightLat]
+    if (nums.some((v) => Number.isNaN(v))) return
+
+    clearAccessLines()
+
+    const startToBoard = new kakao.maps.Polyline({
+      path: [
+        new kakao.maps.LatLng(startLat, startLng),
+        new kakao.maps.LatLng(boardLat, boardLng),
+      ],
+      strokeWeight: 4,
+      strokeColor: '#2563eb',
+      strokeOpacity: 0.8,
+      strokeStyle: 'shortdash',
+    })
+    startToBoard.setMap(mapRef.current)
+    accessLinePolylinesRef.current.push(startToBoard)
+
+    const alightToEnd = new kakao.maps.Polyline({
+      path: [
+        new kakao.maps.LatLng(alightLat, alightLng),
+        new kakao.maps.LatLng(endLat, endLng),
+      ],
+      strokeWeight: 4,
+      strokeColor: '#ef4444',
+      strokeOpacity: 0.8,
+      strokeStyle: 'shortdash',
+    })
+    alightToEnd.setMap(mapRef.current)
+    accessLinePolylinesRef.current.push(alightToEnd)
+  }
+
+  function renderBusRoutePolylines(routePaths: Array<{ routeId: string; routeName?: string; path: number[][] }>, highlightedRouteId: string | null = null) {
+    const kakao = (window as any).kakao
+    if (!mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
+    clearBusRoutePolylines()
+    const indigo = '#4f46e5'
+    const highlighted = String(highlightedRouteId || '')
+    routePaths.forEach((item) => {
+      const points = (item.path || [])
+        .filter((c) => Array.isArray(c) && c.length >= 2)
+        .map((c) => new kakao.maps.LatLng(Number(c[1]), Number(c[0])))
+      if (points.length < 2) return
+      const isHighlighted = highlighted && String(item.routeId) === highlighted
+      const color = indigo
+      const line = new kakao.maps.Polyline({
+        path: points,
+        strokeWeight: isHighlighted ? 6 : 4,
+        strokeColor: color,
+        strokeOpacity: isHighlighted ? 0.95 : 0.7,
+        strokeStyle: 'solid',
+      })
+      line.setMap(mapRef.current)
+      busRoutePolylinesRef.current.push(line)
+
+      const label = String(item.routeName || '').trim()
+      if (label) {
+        const mid = points[Math.floor(points.length / 2)]
+        const content = `<div style="background:${indigo};color:#fff;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:700;line-height:1.2;white-space:nowrap;box-shadow:0 1px 4px rgba(15,23,42,0.25);">${label}</div>`
+        const overlay = new kakao.maps.CustomOverlay({
+          position: mid,
+          content,
+          xAnchor: 0.5,
+          yAnchor: 1.7,
+        })
+        overlay.setMap(mapRef.current)
+        busRouteBadgeOverlaysRef.current.push(overlay)
+      }
+    })
+  }
+
+  function focusSelectedGroupOnMap(g: Group) {
+    const kakao = (window as any).kakao
+    if (!mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
+    const startLng = parseCoordValue(ax)
+    const startLat = parseCoordValue(ay)
+    const endLng = parseCoordValue(bx)
+    const endLat = parseCoordValue(by)
+    const boardLng = parseCoordValue(g.board?.lon)
+    const boardLat = parseCoordValue(g.board?.lat)
+    const alightLng = parseCoordValue(g.alight?.lon)
+    const alightLat = parseCoordValue(g.alight?.lat)
+    const nums = [startLng, startLat, endLng, endLat, boardLng, boardLat, alightLng, alightLat]
+    if (nums.some((v) => Number.isNaN(v))) return
+    const bounds = new kakao.maps.LatLngBounds()
+    bounds.extend(new kakao.maps.LatLng(startLat, startLng))
+    bounds.extend(new kakao.maps.LatLng(endLat, endLng))
+    bounds.extend(new kakao.maps.LatLng(boardLat, boardLng))
+    bounds.extend(new kakao.maps.LatLng(alightLat, alightLng))
+    mapRef.current.setBounds(bounds)
+  }
+
+  async function fetchRouteLinePath(routeId: string, g?: Group): Promise<number[][]> {
+    const key = String(routeId || '').trim()
+    if (!key || !g) return []
+    const boardx = Number(g.board?.lon)
+    const boardy = Number(g.board?.lat)
+    const alightx = Number(g.alight?.lon)
+    const alighty = Number(g.alight?.lat)
+    if ([boardx, boardy, alightx, alighty].some((v) => Number.isNaN(v))) return []
+    const cacheKey = `${key}|${boardx.toFixed(6)},${boardy.toFixed(6)}|${alightx.toFixed(6)},${alighty.toFixed(6)}`
+    const cached = routeLinePathByRouteIdRef.current[cacheKey]
+    if (cached && cached.length) return cached
+    try {
+      const params = new URLSearchParams({
+        routeId: key,
+        boardx: String(boardx),
+        boardy: String(boardy),
+        alightx: String(alightx),
+        alighty: String(alighty),
+      })
+      const r = await fetch('/api/routeLine?' + params.toString())
+      const j = await r.json()
+      const path = Array.isArray(j?.path) ? j.path : []
+      routeLinePathByRouteIdRef.current[cacheKey] = path
+      return path
+    } catch {
+      return []
+    }
+  }
+
+  function getPrefetchedCombinedForGroup(g: Group): TimetableEntry[] {
+    const data = allGroupsTimetable && allGroupsTimetable.data ? allGroupsTimetable.data.combined : []
+    const boardName = String(g?.board?.stationName || '').trim()
+    const alightName = String(g?.alight?.stationName || '').trim()
+    const allowedRouteIds = new Set((g.routes || []).map((r) => String(r.routeId || '')).filter(Boolean))
+    const walkToBoardSec = Number(g?.walk?.startToBoard?.timeSec || 0)
+    const walkFromAlightSec = Number(g?.walk?.alightToEnd?.timeSec || 0)
+    const walkTotalSec = Number(g?.walk?.totalTimeSec || (walkToBoardSec + walkFromAlightSec) || 0)
+    return (data || [])
+      .filter((entry) => {
+        const eBoard = String(entry?.boardStationName || '').trim()
+        const eAlight = String(entry?.alightStationName || '').trim()
+        const rid = String(entry?.routeId || '').trim()
+        return eBoard === boardName && eAlight === alightName && allowedRouteIds.has(rid)
+      })
+      .map((entry) => ({
+        ...entry,
+        walkToBoardSec,
+        walkFromAlightSec,
+        walkTotalSec,
+      }))
+  }
+
+  function getBoardingRouteIdForGroup(groupKey: string, g: Group): string | null {
+    const selectedRouteId = groupTimetables[groupKey]?.selectedRouteId
+    if (selectedRouteId) return String(selectedRouteId)
+
+    let entries = getCombinedForGroup(groupKey)
+    if (!entries.length) entries = getPrefetchedCombinedForGroup(g)
+    if (!entries.length) return String(g.routes?.[0]?.routeId || '') || null
+
+    const now = new Date()
+    const nowMinutes = now.getHours() * 60 + now.getMinutes()
+    const walkToBoardMinutes = Math.ceil((Number(entries[0]?.walkToBoardSec || 0) || 0) / 60)
+    const earliestBoardMinutes = nowMinutes + walkToBoardMinutes
+
+    const candidates = entries
+      .map((entry) => {
+        const boardMin = getDisplayMinutes(entry.boardTime)
+        const alightMin = getDisplayMinutes(entry.alightTime)
+        return {
+          routeId: String(entry.routeId || ''),
+          boardMin,
+          alightMin,
+        }
+      })
+      .filter((x) => x.routeId && x.boardMin != null && x.alightMin != null) as Array<{ routeId: string; boardMin: number; alightMin: number }>
+
+    if (!candidates.length) return String(g.routes?.[0]?.routeId || '') || null
+    const normalized = candidates.map((x) => {
+      let board = x.boardMin
+      let alight = x.alightMin
+      while (board < earliestBoardMinutes) {
+        board += 1440
+        alight += 1440
+      }
+      return { ...x, boardMin: board, alightMin: alight }
+    })
+    normalized.sort((a, b) => (a.alightMin - b.alightMin) || (a.boardMin - b.boardMin))
+    return normalized[0]?.routeId || null
+  }
+
+  async function renderSelectedGroupRouteLines(groupKey: string, g: Group): Promise<void> {
+    const token = ++routeLineRenderTokenRef.current
+    const routeIds = (g.routes || []).map((r) => String(r.routeId || '')).filter(Boolean)
+    if (!routeIds.length) {
+      clearBusRoutePolylines()
+      return
+    }
+    const highlightedRouteId = getBoardingRouteIdForGroup(groupKey, g)
+    const targetRouteId = highlightedRouteId && routeIds.includes(highlightedRouteId)
+      ? highlightedRouteId
+      : routeIds[0]
+    const targetPath = await fetchRouteLinePath(targetRouteId, g)
+    if (token !== routeLineRenderTokenRef.current) return
+    const targetRoute = (g.routes || []).find((x) => String(x.routeId || '') === String(targetRouteId))
+    const paths = (targetPath || []).length >= 2 ? [{ routeId: targetRouteId, routeName: String(targetRoute?.routeName || targetRouteId), path: targetPath }] : []
+    renderBusRoutePolylines(paths, targetRouteId)
+  }
+
   function renderGroupStationOverlays(groups: Group[]) {
     const kakao = (window as any).kakao
     if (!mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
@@ -284,7 +568,8 @@ export default function Home() {
     setGroupTimetableHidden({})
     setAllGroupsHighlightedRowIndex(-1)
     setGroupHighlightedRowIndexes({})
-    setAllGroupsSelectedRouteId(null)
+    setAllGroupsSelectedRouteIds([])
+    clearAccessLines()
     if (!options.keepExpandedGroup) setExpandedGroupKey(null)
   }
 
@@ -447,10 +732,41 @@ export default function Home() {
     if (!placesRef.current || !mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
     if (type === 'start') setStartSearchMsg('검색 중...')
     else setEndSearchMsg('검색 중...')
-    placesRef.current.keywordSearch(keyword.trim(), (data: KakaoPlace[], status: any) => {
-      if (status !== kakao.maps.services.Status.OK || !data || data.length === 0) {
+
+    const runAddressSearchFallback = () => {
+      if (!geocoderRef.current || !kakao.maps.services) {
         if (type === 'start') { setStartSearchResults([]); setStartSearchMsg('검색 결과가 없습니다.') }
         else { setEndSearchResults([]); setEndSearchMsg('검색 결과가 없습니다.') }
+        return
+      }
+      geocoderRef.current.addressSearch(keyword.trim(), (data: any[], status: any) => {
+        if (status !== kakao.maps.services.Status.OK || !data || data.length === 0) {
+          if (type === 'start') { setStartSearchResults([]); setStartSearchMsg('검색 결과가 없습니다.') }
+          else { setEndSearchResults([]); setEndSearchMsg('검색 결과가 없습니다.') }
+          return
+        }
+        const mapped: KakaoPlace[] = data
+          .map((item: any) => ({
+            place_name: String(item && (item.address_name || (item.road_address && item.road_address.address_name) || '')).trim(),
+            address_name: String(item && item.address_name ? item.address_name : '').trim(),
+            road_address_name: String(item && item.road_address && item.road_address.address_name ? item.road_address.address_name : '').trim(),
+            x: String(item && item.x ? item.x : ''),
+            y: String(item && item.y ? item.y : ''),
+          }))
+          .filter((item) => item.x && item.y)
+        if (type === 'start') {
+          setStartSearchResults(mapped)
+          setStartSearchMsg(mapped.length === 0 ? '검색 결과가 없습니다.' : '')
+        } else {
+          setEndSearchResults(mapped)
+          setEndSearchMsg(mapped.length === 0 ? '검색 결과가 없습니다.' : '')
+        }
+      })
+    }
+
+    placesRef.current.keywordSearch(keyword.trim(), (data: KakaoPlace[], status: any) => {
+      if (status !== kakao.maps.services.Status.OK || !data || data.length === 0) {
+        runAddressSearchFallback()
         return
       }
       if (type === 'start') { setStartSearchResults(data); setStartSearchMsg('') }
@@ -507,7 +823,6 @@ export default function Home() {
   async function fetchGroupTimetable(g: Group, routeId: string | null = null) {
     const key = getGroupKey(g)
     setShowAllGroupsTimetable(false)
-    setShowGroupList(true)
     setGroupTimetableHidden((p) => ({ ...p, [key]: false }))
     setGroupTimetables((p) => ({ ...p, [key]: { loading: true } }))
     try {
@@ -533,7 +848,7 @@ export default function Home() {
 
   async function fetchAllGroupsTimetable() {
     // Always reset route filter when the table is opened
-    setAllGroupsSelectedRouteId(null)
+    setAllGroupsSelectedRouteIds([])
     // Already have data (or error) → just show it
     if (allGroupsTimetable && !allGroupsTimetable.loading) {
       setShowAllGroupsTimetable(true)
@@ -552,14 +867,22 @@ export default function Home() {
     setShowAllGroupsTimetable(true)
     setShowGroupList(false)
     try {
-      const params = new URLSearchParams({ ax, ay, bx, by, aradius: startRadius, bradius: endRadius })
-      if (sday) params.set('sday', sday)
-      const r = await fetch('/api/allGroupsTimetable?' + params.toString())
-      const j = await r.json()
+      const j = await requestAllGroupsTimetableOnce()
       setAllGroupsTimetable({ loading: false, data: j })
     } catch (err) {
       setAllGroupsTimetable({ loading: false, error: String(err) })
     }
+  }
+
+  async function fetchAllGroupsTimetableAndFocus() {
+    await fetchAllGroupsTimetable()
+    setTimeout(() => {
+      moveAllGroupsToCurrentTime()
+      const tableContainer = allGroupsTableScrollRef.current
+      if (tableContainer && typeof tableContainer.scrollIntoView === 'function') {
+        tableContainer.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }, 80)
   }
 
   // Prefetcher: fetch all-groups timetable without switching UI
@@ -573,10 +896,7 @@ export default function Home() {
     const p = (async () => {
       setAllGroupsTimetable({ loading: true })
       try {
-        const params = new URLSearchParams({ ax, ay, bx, by, aradius: startRadius, bradius: endRadius })
-        if (sday) params.set('sday', sday)
-        const r = await fetch('/api/allGroupsTimetable?' + params.toString())
-        const j = await r.json()
+        const j = await requestAllGroupsTimetableOnce()
         setAllGroupsTimetable({ loading: false, data: j })
       } catch (err) {
         setAllGroupsTimetable({ loading: false, error: String(err) })
@@ -627,8 +947,9 @@ export default function Home() {
 
   function moveAllGroupsToCurrentTime() {
     const combinedAll = (allGroupsTimetable && allGroupsTimetable.data && allGroupsTimetable.data.combined) || []
-    const entries = allGroupsSelectedRouteId
-      ? combinedAll.filter((e) => String(e.routeId) === String(allGroupsSelectedRouteId))
+    const selectedRouteSet = new Set((allGroupsSelectedRouteIds || []).map((x) => String(x)))
+    const entries = selectedRouteSet.size > 0
+      ? combinedAll.filter((e) => selectedRouteSet.has(String(e.routeId || '')))
       : combinedAll
     const rowIndex = getNextBoardRowIndex(entries)
     if (rowIndex < 0) return
@@ -666,6 +987,10 @@ export default function Home() {
   function getCombinedForGroup(groupKey: string): TimetableEntry[] {
     const gt = groupTimetables[groupKey]
     if (!gt || !gt.data) return []
+    const grp = (result && result.groups ? result.groups : []).find((gg) => getGroupKey(gg) === groupKey)
+    const walkToBoardSec = Number(grp?.walk?.startToBoard?.timeSec || 0)
+    const walkFromAlightSec = Number(grp?.walk?.alightToEnd?.timeSec || 0)
+    const walkTotalSec = Number(grp?.walk?.totalTimeSec || (walkToBoardSec + walkFromAlightSec) || 0)
     if (gt.selectedRouteId) {
       const tt = (gt.data.timetables || []).find((x) => String(x.routeId) === String(gt.selectedRouteId))
       if (tt && tt.entries) {
@@ -677,22 +1002,65 @@ export default function Home() {
           orderGap: tt.orderGap,
           boardOrder: tt.boardOrder,
           alightOrder: tt.alightOrder,
+          walkToBoardSec,
+          walkFromAlightSec,
+          walkTotalSec,
         }))
       }
       return []
     }
-    return gt.data.combined || []
+    return (gt.data.combined || []).map((e) => ({
+      ...e,
+      walkToBoardSec,
+      walkFromAlightSec,
+      walkTotalSec,
+    }))
   }
 
   function onGroupCardClick(e: React.MouseEvent, groupKey: string) {
     const target = e.target as HTMLElement
     if (target && target.closest && target.closest('button, a, input, select, textarea, label')) return
-    const willExpand = expandedGroupKey !== groupKey
-    setExpandedGroupKey((prev) => (prev === groupKey ? null : groupKey))
-    if (willExpand && sday) {
-      const grp = (result && result.groups ? result.groups : []).find((gg) => getGroupKey(gg) === groupKey)
-      if (grp) fetchGroupTimetable(grp)
+    setShowAllGroupsTimetable(false)
+    setShowGroupList(false)
+    setExpandedGroupKey(groupKey)
+    const grp = (result && result.groups ? result.groups : []).find((gg) => getGroupKey(gg) === groupKey)
+    if (grp) {
+      focusSelectedGroupOnMap(grp)
+      renderSelectedGroupRouteLines(groupKey, grp).catch(() => {})
     }
+  }
+
+  function onToggleGroupTimetable(groupKey: string, g: Group) {
+    setExpandedGroupKey(groupKey)
+    // In group-list mode, clicking a group's time button should switch to that selected-group view.
+    if (showGroupList && !showAllGroupsTimetable) {
+      setShowGroupList(false)
+      setShowAllGroupsTimetable(false)
+    }
+    const opened = !!groupTimetables[groupKey] && !groupTimetableHidden[groupKey]
+    if (opened) {
+      setGroupTimetableHidden((p) => ({ ...p, [groupKey]: true }))
+      setTimeout(() => {
+        const el = document.querySelector(`[data-group-key="${groupKey}"]`) as HTMLElement | null
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        }
+      }, 0)
+      return
+    }
+    if (!sday) return
+    fetchGroupTimetable(g)
+    renderSelectedGroupRouteLines(groupKey, g).catch(() => {})
+  }
+
+  function onFoldGroupTimetableAndKeepCardVisible(groupKey: string) {
+    setGroupTimetableHidden((p) => ({ ...p, [groupKey]: true }))
+    setTimeout(() => {
+      const el = document.querySelector(`[data-group-key="${groupKey}"]`) as HTMLElement | null
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      }
+    }, 0)
   }
 
   // ─── Share ─────────────────────────────────────────────────────────
@@ -844,7 +1212,7 @@ export default function Home() {
     updateMarker('end', bx, by)
     updateCircle('start', ax, ay, startRadius)
     updateCircle('end', bx, by, endRadius)
-  }, [ax, ay, bx, by, startRadius, endRadius])
+  }, [ax, ay, bx, by, startRadius, endRadius, mapReadyTick])
 
   useEffect(() => {
     if (!mapRef.current) return
@@ -854,6 +1222,34 @@ export default function Home() {
     if (!selected) { renderGroupStationOverlays(result.groups || []); return }
     renderGroupStationOverlays([selected])
   }, [result, expandedGroupKey])
+
+  useEffect(() => {
+    if (!mapRef.current) return
+    if (!result || result.loading || result.error || !expandedGroupKey) {
+      clearBusRoutePolylines()
+      return
+    }
+    const selected = (result.groups || []).find((g) => getGroupKey(g) === expandedGroupKey)
+    if (!selected) {
+      clearBusRoutePolylines()
+      return
+    }
+    renderSelectedGroupRouteLines(expandedGroupKey, selected).catch(() => {})
+  }, [result, expandedGroupKey, groupTimetables, allGroupsTimetable, sday])
+
+  useEffect(() => {
+    if (!mapRef.current) return
+    if (!result || result.loading || result.error || !expandedGroupKey) {
+      clearAccessLines()
+      return
+    }
+    const selected = (result.groups || []).find((g) => getGroupKey(g) === expandedGroupKey)
+    if (!selected) {
+      clearAccessLines()
+      return
+    }
+    renderAccessLines(selected)
+  }, [result, expandedGroupKey, ax, ay, bx, by])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -891,6 +1287,8 @@ export default function Home() {
           const latLng = mouseEvent.latLng
           setPendingMapPoint({ lon: toCoordString(latLng.getLng()), lat: toCoordString(latLng.getLat()) })
         })
+        // Trigger post-init effects so latest URL/query state values are rendered
+        setMapReadyTick((v) => v + 1)
       })
     }
 
@@ -922,6 +1320,25 @@ export default function Home() {
     if (!expandedGroupKey) return
     moveGroupToCurrentTime(expandedGroupKey)
   }, [groupTimetables, expandedGroupKey, sday])
+
+  useEffect(() => {
+    if (!result || result.loading) return
+    const t = setTimeout(() => {
+      const node = resultsSectionRef.current
+      if (node && typeof node.scrollIntoView === 'function') {
+        node.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }, 60)
+    return () => clearTimeout(t)
+  }, [result])
+
+  // After search result is ready (including URL-initialized search), fit map to start/end.
+  useEffect(() => {
+    if (!mapRef.current) return
+    if (!result || result.loading || result.error) return
+    if (expandedGroupKey) return
+    focusStartEndOnMap()
+  }, [result, expandedGroupKey, mapReadyTick, ax, ay, bx, by])
 
   // PWA install prompt (Android) + iOS detection
   useEffect(() => {
@@ -999,6 +1416,10 @@ export default function Home() {
   const quickDay1 = getQuickDayValue(1, dateBounds)
   const quickDay2 = getQuickDayValue(2, dateBounds)
   const quickDay7 = getQuickDayValue(7, dateBounds)
+  const focusedCardOnly = !!expandedGroupKey && !showGroupList && !showAllGroupsTimetable
+  const hasSearchResult = !!result && !result.loading && !result.error
+  const headerStartText = (startKeyword || (ax && ay ? `${ay}, ${ax}` : '')).trim()
+  const headerEndText = (endKeyword || (bx && by ? `${by}, ${bx}` : '')).trim()
 
   // ─── Render ────────────────────────────────────────────────────────
 
@@ -1011,8 +1432,17 @@ export default function Home() {
       <div className="sticky top-0 z-10 w-full bg-white border-b border-slate-200">
         <div className="mx-auto w-full max-w-[1200px] px-5 py-2 flex items-start justify-between">
           <div>
-            <h1 className="text-xl font-bold">버스탈시간</h1>
-            <h3 className="text-m font-semibold">경기도 버스 시간 이력 조회 서비스</h3>
+            <div className={hasSearchResult ? 'flex items-end gap-2' : ''}>
+              <h1 className="text-xl font-bold">버스탈시간</h1>
+              <h3 className="text-m font-semibold">경기도 버스 시간 이력 조회 서비스</h3>
+            </div>
+            {hasSearchResult && (headerStartText || headerEndText) && (
+              <p className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-medium text-slate-600 sm:text-sm">
+                {headerStartText || '-'}
+                <span className="mx-1 text-slate-400">→</span>
+                {headerEndText || '-'}
+              </p>
+            )}
           </div>
           {!isStandalone && (deferredInstallPrompt || isIos) && (
             <div className="relative flex items-center">
@@ -1075,7 +1505,7 @@ export default function Home() {
               onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'start')}
               onLocate={() => getCurrentLocationAndSet('start')}
               locating={locatingStart}
-              placeholder="출발지 검색"
+              placeholder="출발지/주소 검색"
             />
             <PlaceSearchInput
               value={endKeyword}
@@ -1084,7 +1514,7 @@ export default function Home() {
               onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'end')}
               onLocate={() => getCurrentLocationAndSet('end')}
               locating={locatingEnd}
-              placeholder="도착지 검색"
+              placeholder="도착지/주소 검색"
             />
           </div>
         </div>
@@ -1144,72 +1574,81 @@ export default function Home() {
       </div>
 
       {/* Search form */}
-      <form onSubmit={submit} className="grid w-full max-w-[720px] mx-0 gap-2 mt-4 px-2 sm:px-0">
-        <DateSelector
-          sday={sday}
-          dateBounds={dateBounds}
-          quickDay1={quickDay1}
-          quickDay2={quickDay2}
-          quickDay7={quickDay7}
-          onSdayChange={handleSdayChange}
-          onQuickDay={setQuickDay}
-        />
-        <div className="flex">
-          <button
-            type="submit"
-            className="h-11 w-[180px] rounded bg-slate-900 text-base font-bold text-white hover:bg-slate-700"
-          >
-            검색
-          </button>
-        </div>
-      </form>
+      {!focusedCardOnly && (
+        <form onSubmit={submit} className="grid w-full max-w-[720px] mx-0 gap-2 mt-4 px-2 sm:px-0">
+          <DateSelector
+            sday={sday}
+            dateBounds={dateBounds}
+            quickDay1={quickDay1}
+            quickDay2={quickDay2}
+            quickDay7={quickDay7}
+            onSdayChange={handleSdayChange}
+            onQuickDay={setQuickDay}
+          />
+          <div className="flex">
+            <button
+              type="submit"
+              className="h-11 w-[180px] rounded bg-slate-900 text-base font-bold text-white hover:bg-slate-700"
+            >
+              검색
+            </button>
+          </div>
+        </form>
+      )}
 
       {/* Results */}
       {result != null && (
-        <ResultsSection
-          result={result}
-          sday={sday}
-          groupTimetables={groupTimetables}
-          allGroupsTimetable={allGroupsTimetable}
-          showAllGroupsTimetable={showAllGroupsTimetable}
-          showGroupList={showGroupList}
-          groupTimetableHidden={groupTimetableHidden}
-          allGroupsHighlightedRowIndex={allGroupsHighlightedRowIndex}
-          groupHighlightedRowIndexes={groupHighlightedRowIndexes}
-          allGroupsSelectedRouteId={allGroupsSelectedRouteId}
-          expandedGroupKey={expandedGroupKey}
-          allGroupsTableScrollRef={allGroupsTableScrollRef}
-          groupTableScrollRefs={groupTableScrollRefs}
-          routeBadgeRowRefs={routeBadgeRowRefs}
-          onShare={handleShare}
-          onFetchAllGroupsTimetable={fetchAllGroupsTimetable}
-          onSelectAllGroupsRoute={setAllGroupsSelectedRouteId}
-          onMoveAllGroupsToCurrentTime={moveAllGroupsToCurrentTime}
-          onFoldAllGroupsTimetable={() => {
-            setShowAllGroupsTimetable(false)
-            setShowGroupList(true)
-            // Reset expanded group filter so it opens as "all" next time
-            if (expandedGroupKey) setGroupTimetables((p) => {
-              const prev = p[expandedGroupKey]
-              return prev ? { ...p, [expandedGroupKey]: { ...prev, selectedRouteId: null } } : p
-            })
-          }}
-          onShowGroupList={() => {
-            setShowGroupList(true)
-            setShowAllGroupsTimetable(false)
-            // Reset expanded group filter so it opens as "all" next time
-            if (expandedGroupKey) setGroupTimetables((p) => {
-              const prev = p[expandedGroupKey]
-              return prev ? { ...p, [expandedGroupKey]: { ...prev, selectedRouteId: null } } : p
-            })
-          }}
-          onGroupCardClick={onGroupCardClick}
-          onFetchGroupTimetable={fetchGroupTimetable}
-          onSelectGroupRoute={handleSelectGroupRoute}
-          onMoveGroupToCurrentTime={moveGroupToCurrentTime}
-          onFoldGroupTimetable={(key) => setGroupTimetableHidden((p) => ({ ...p, [key]: true }))}
-          getCombinedForGroup={getCombinedForGroup}
-        />
+        <div ref={resultsSectionRef}>
+          <ResultsSection
+            result={result}
+            sday={sday}
+            groupTimetables={groupTimetables}
+            allGroupsTimetable={allGroupsTimetable}
+            showAllGroupsTimetable={showAllGroupsTimetable}
+            showGroupList={showGroupList}
+            groupTimetableHidden={groupTimetableHidden}
+            allGroupsHighlightedRowIndex={allGroupsHighlightedRowIndex}
+            groupHighlightedRowIndexes={groupHighlightedRowIndexes}
+            allGroupsSelectedRouteIds={allGroupsSelectedRouteIds}
+            expandedGroupKey={expandedGroupKey}
+            allGroupsTableScrollRef={allGroupsTableScrollRef}
+            groupTableScrollRefs={groupTableScrollRefs}
+            routeBadgeRowRefs={routeBadgeRowRefs}
+            onShare={handleShare}
+            onFetchAllGroupsTimetable={fetchAllGroupsTimetableAndFocus}
+            onSelectAllGroupsRoutes={setAllGroupsSelectedRouteIds}
+            onMoveAllGroupsToCurrentTime={moveAllGroupsToCurrentTime}
+            onFoldAllGroupsTimetable={() => {
+              setShowAllGroupsTimetable(false)
+              setShowGroupList(true)
+              // Reset expanded group filter so it opens as "all" next time
+              if (expandedGroupKey) setGroupTimetables((p) => {
+                const prev = p[expandedGroupKey]
+                return prev ? { ...p, [expandedGroupKey]: { ...prev, selectedRouteId: null } } : p
+              })
+            }}
+            onShowGroupList={() => {
+              setShowGroupList(true)
+              setShowAllGroupsTimetable(false)
+              // Close the currently expanded group timetable when returning to group list.
+              if (expandedGroupKey) {
+                setGroupTimetableHidden((p) => ({ ...p, [expandedGroupKey]: true }))
+              }
+              // Reset expanded group filter so it opens as "all" next time
+              if (expandedGroupKey) setGroupTimetables((p) => {
+                const prev = p[expandedGroupKey]
+                return prev ? { ...p, [expandedGroupKey]: { ...prev, selectedRouteId: null } } : p
+              })
+            }}
+            onGroupCardClick={onGroupCardClick}
+            onToggleGroupTimetable={onToggleGroupTimetable}
+            onFetchGroupTimetable={fetchGroupTimetable}
+            onSelectGroupRoute={handleSelectGroupRoute}
+            onMoveGroupToCurrentTime={moveGroupToCurrentTime}
+            onFoldGroupTimetable={onFoldGroupTimetableAndKeepCardVisible}
+            getCombinedForGroup={getCombinedForGroup}
+          />
+        </div>
       )}
 
       <SharePreviewModal

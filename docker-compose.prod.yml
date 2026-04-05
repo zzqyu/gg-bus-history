@@ -8,6 +8,8 @@ services:
       - ./api:/app
       - ./basedata:/data
       - ./basedata.db:/app/basedata.db
+    env_file:
+      - .env.local
     environment:
       - PYTHONUNBUFFERED=1
     # API is internal only in production (no published ports)

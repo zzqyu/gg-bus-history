@@ -8,6 +8,7 @@ import requests
 from requests.exceptions import RequestException
 import logging
 import time
+from urllib.parse import quote
 
 app = FastAPI()
 
@@ -269,6 +270,32 @@ def prefetch_past_arrivals(fetch_keys, max_workers=12):
 
     with ThreadPoolExecutor(max_workers=min(max_workers, len(to_fetch))) as executor:
         list(executor.map(_do, to_fetch))
+
+
+def estimate_walk_time_seconds(distance_m: float) -> int:
+    """직선거리 기준 도보시간 추정치(4km/h × 우회계수 1.3)."""
+    try:
+        d = float(distance_m)
+    except Exception:
+        d = 0.0
+    if d <= 0:
+        return 0
+    speed_mps = 4000.0 / 3600.0
+    detour_factor = 1.3
+    return int(round((d / speed_mps) * detour_factor))
+
+
+def build_kakao_walk_url(start_name, start_lon, start_lat, end_name, end_lon, end_lat):
+    try:
+        s_name = quote(str(start_name or '출발지').strip() or '출발지', safe='')
+        e_name = quote(str(end_name or '도착지').strip() or '도착지', safe='')
+        s_lat = float(start_lat)
+        s_lon = float(start_lon)
+        e_lat = float(end_lat)
+        e_lon = float(end_lon)
+    except Exception:
+        return None
+    return f"https://map.kakao.com/link/by/walk/{s_name},{s_lat},{s_lon}/{e_name},{e_lat},{e_lon}"
 
 
 def build_timetables_for_routes(routes, board_station_id: str, alight_station_id: str, sday_norm: str):
@@ -593,6 +620,8 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
         d = haversine(ay, ax, s['lat'], s['lon'])
         if d <= start_radius:
             s['dist'] = d
+            s['walkDistance'] = int(round(d))
+            s['walkTimeSec'] = estimate_walk_time_seconds(d)
             near_a.append(s)
 
     near_b = []
@@ -600,6 +629,8 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
         d = haversine(by, bx, s['lat'], s['lon'])
         if d <= end_radius:
             s['dist'] = d
+            s['walkDistance'] = int(round(d))
+            s['walkTimeSec'] = estimate_walk_time_seconds(d)
             near_b.append(s)
 
     if not near_a or not near_b:
@@ -675,7 +706,8 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
             if not sa or not sb:
                 continue
 
-            score = float(sa.get('dist', 1e9)) + float(sb.get('dist', 1e9))
+            walk_score = float(sa.get('walkTimeSec', 1e9)) + float(sb.get('walkTimeSec', 1e9))
+            distance_score = float(sa.get('dist', 1e9)) + float(sb.get('dist', 1e9))
             groups.append({
                 'board': {
                     'stationId': sa['stationId'],
@@ -683,6 +715,8 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
                     'lon': sa['lon'],
                     'lat': sa['lat'],
                     'dist': sa['dist'],
+                    'walkDistance': sa.get('walkDistance'),
+                    'walkTimeSec': sa.get('walkTimeSec'),
                 },
                 'alight': {
                     'stationId': sb['stationId'],
@@ -690,11 +724,15 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
                     'lon': sb['lon'],
                     'lat': sb['lat'],
                     'dist': sb['dist'],
+                    'walkDistance': sb.get('walkDistance'),
+                    'walkTimeSec': sb.get('walkTimeSec'),
                 },
                 'routes': routes,
                 'routeIds': sorted(list(route_ids)),
                 'orderGapScore': order_gap_score,
-                'score': score,
+                'score': walk_score,
+                'walkScore': walk_score,
+                'distanceScore': distance_score,
             })
 
     if _pair_sql_count:
@@ -704,8 +742,8 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
 
     # Per-route station-pair selection rule:
     # 1) valid forward pairs only (already ensured by boardOrder < alightOrder)
-    # 2) among candidates close to minimal walking distance, prefer smaller orderGap
-    WALK_TOLERANCE_METERS = 120.0
+    # 2) among candidates close to minimal walking time, prefer smaller orderGap
+    WALK_TOLERANCE_SECONDS = 120.0
     route_candidates = {}
     for g in groups:
         board_sid = str((g.get('board') or {}).get('stationId') or '')
@@ -754,7 +792,7 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
                 min_walk = min(float(c.get('walkSum') or 1e12) for c in cand_list)
             except Exception:
                 min_walk = 1e12
-            near_walk = [c for c in cand_list if float(c.get('walkSum') or 1e12) <= min_walk + WALK_TOLERANCE_METERS]
+            near_walk = [c for c in cand_list if float(c.get('walkSum') or 1e12) <= min_walk + WALK_TOLERANCE_SECONDS]
             near_walk.sort(key=lambda c: (int(c.get('orderGap') or 10**9), float(c.get('walkSum') or 1e12), c.get('boardOrder'), c.get('alightOrder')))
             route_best[rid] = near_walk[0]
             continue
@@ -849,8 +887,8 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
             continue
 
         prev = dedup[key]
-        prev_rank = (float(prev.get('orderGapScore') or 1e12), float(prev.get('score') or 1e12))
-        cur_rank = (float(g.get('orderGapScore') or 1e12), float(g.get('score') or 1e12))
+        prev_rank = (float(prev.get('orderGapScore') or 1e12), float(prev.get('walkScore') or prev.get('score') or 1e12))
+        cur_rank = (float(g.get('orderGapScore') or 1e12), float(g.get('walkScore') or g.get('score') or 1e12))
         if cur_rank < prev_rank:
             dedup[key] = g
 
@@ -865,17 +903,19 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
             if h is g:
                 continue
             hid_set = set(h['routeIds'])
-            if gid_set.issubset(hid_set) and h['score'] <= g['score']:
+            h_score = float(h.get('walkScore') or h.get('score') or 1e12)
+            g_score = float(g.get('walkScore') or g.get('score') or 1e12)
+            if gid_set.issubset(hid_set) and h_score <= g_score:
                 # h has at least the same routes (maybe more) and is equal-or-better proximity
                 dominated = True
                 break
         if not dominated:
             final_groups.append(g)
 
-    # sort by staOrder gap first, then walking distance
+    # sort by staOrder gap first, then walking time
     if not final_groups and uniq_groups:
         final_groups = list(uniq_groups)
-    final_groups.sort(key=lambda x: (float(x.get('orderGapScore') or 1e12), float(x.get('score') or 1e12)))
+    final_groups.sort(key=lambda x: (float(x.get('orderGapScore') or 1e12), float(x.get('walkScore') or x.get('score') or 1e12)))
 
     # remove helper keys `routeIds` before returning
     for g in final_groups:
@@ -883,6 +923,31 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
             del g['routeIds']
         if 'orderGapScore' in g:
             del g['orderGapScore']
+
+    # attach walking info for each result (start->board, alight->end)
+    for g in final_groups:
+        board = g.get('board') or {}
+        alight = g.get('alight') or {}
+
+        sw_dist = int(round(float(board.get('walkDistance') or board.get('dist') or 0)))
+        ew_dist = int(round(float(alight.get('walkDistance') or alight.get('dist') or 0)))
+        sw_time = int(round(float(board.get('walkTimeSec') or estimate_walk_time_seconds(sw_dist))))
+        ew_time = int(round(float(alight.get('walkTimeSec') or estimate_walk_time_seconds(ew_dist))))
+
+        g['walk'] = {
+            'startToBoard': {
+                'distance': sw_dist,
+                'timeSec': sw_time,
+                'kakaoUrl': build_kakao_walk_url('출발지', ax, ay, str(board.get('stationName') or '탑승 정류장'), board.get('lon'), board.get('lat')),
+            },
+            'alightToEnd': {
+                'distance': ew_dist,
+                'timeSec': ew_time,
+                'kakaoUrl': build_kakao_walk_url(str(alight.get('stationName') or '하차 정류장'), alight.get('lon'), alight.get('lat'), '도착지', bx, by),
+            },
+            'totalDistance': sw_dist + ew_dist,
+            'totalTimeSec': sw_time + ew_time,
+        }
 
     sday_norm = sday.strip() if sday else None
 
@@ -1057,6 +1122,28 @@ def all_groups_timetable(ax: float, ay: float, bx: float, by: float, radius: int
     for g in groups:
         board = g.get('board') or {}
         alight = g.get('alight') or {}
+        walk = g.get('walk') or {}
+        walk_start = walk.get('startToBoard') or {}
+        walk_end = walk.get('alightToEnd') or {}
+        try:
+            walk_to_board_sec = int(walk_start.get('timeSec') or 0)
+        except Exception:
+            walk_to_board_sec = 0
+        try:
+            walk_from_alight_sec = int(walk_end.get('timeSec') or 0)
+        except Exception:
+            walk_from_alight_sec = 0
+        try:
+            walk_to_board_dist = int(walk_start.get('distance') or 0)
+        except Exception:
+            walk_to_board_dist = 0
+        try:
+            walk_from_alight_dist = int(walk_end.get('distance') or 0)
+        except Exception:
+            walk_from_alight_dist = 0
+        walk_total_sec = walk_to_board_sec + walk_from_alight_sec
+        walk_total_dist = walk_to_board_dist + walk_from_alight_dist
+
         board_station_id = str(board.get('stationId'))
         alight_station_id = str(alight.get('stationId'))
         gt_routes = g.get('routes') or []
@@ -1106,6 +1193,12 @@ def all_groups_timetable(ax: float, ay: float, bx: float, by: float, radius: int
                 'inferred': e.get('inferred'),
                 'inference_method': e.get('inference_method'),
                 'inference_confidence': e.get('inference_confidence'),
+                'walkToBoardSec': walk_to_board_sec,
+                'walkFromAlightSec': walk_from_alight_sec,
+                'walkTotalSec': walk_total_sec,
+                'walkToBoardDistance': walk_to_board_dist,
+                'walkFromAlightDistance': walk_from_alight_dist,
+                'walkTotalDistance': walk_total_dist,
                 '_bt_parsed': bt,
                 '_order_gap': order_gap,
                 '_group_score': group_score,
@@ -1169,3 +1262,85 @@ def all_groups_timetable(ax: float, ay: float, bx: float, by: float, radius: int
     }
     cache_set(cache_key, out)
     return out
+
+
+@app.get('/routeLine')
+def route_line(
+    routeId: str,
+    boardx: float = None,
+    boardy: float = None,
+    alightx: float = None,
+    alighty: float = None,
+    db_path: str = 'basedata.db',
+):
+    """Return route polyline points from routeline table.
+
+    If board/alight coordinates are provided, return only the segment between
+    nearest points to board and alight.
+    """
+    rid = str(routeId or '').strip()
+    if not rid:
+        raise HTTPException(status_code=400, detail='routeId is required')
+
+    dbp = Path(db_path)
+    if not dbp.exists():
+        dbp = Path('basedata.db')
+
+    conn = get_db_connection(str(dbp))
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT x, y
+            FROM routeline
+            WHERE routeId = ?
+            ORDER BY CAST(lineSeq AS INTEGER), lineSeq
+            """,
+            (rid,),
+        )
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    path = []
+    for r in rows or []:
+        try:
+            x = float(r['x'])
+            y = float(r['y'])
+            path.append([x, y])
+        except Exception:
+            continue
+
+    # Optional segment clipping between board/alight stations
+    if path and boardx is not None and boardy is not None and alightx is not None and alighty is not None:
+        def _nearest_idx(px, py, coords):
+            best_i = 0
+            best_d = None
+            for i, c in enumerate(coords):
+                try:
+                    cx = float(c[0])
+                    cy = float(c[1])
+                    d = haversine(float(py), float(px), cy, cx)
+                    if best_d is None or d < best_d:
+                        best_d = d
+                        best_i = i
+                except Exception:
+                    continue
+            return best_i
+
+        try:
+            bi = _nearest_idx(boardx, boardy, path)
+            ai = _nearest_idx(alightx, alighty, path)
+            lo = min(bi, ai)
+            hi = max(bi, ai)
+            clipped = path[lo:hi + 1]
+            if len(clipped) >= 2:
+                path = clipped
+        except Exception:
+            # Keep full path on clipping failure
+            pass
+
+    return {
+        'routeId': rid,
+        'path': path,
+    }

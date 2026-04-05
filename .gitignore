@@ -78,3 +78,5 @@ basedata.db
 # Ensure we don't ignore lockfiles by default; uncomment if desired
 # package-lock.json
 # yarn.lock
+
+.roorules
