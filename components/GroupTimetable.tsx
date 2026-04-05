@@ -133,7 +133,7 @@ export default function GroupTimetable({
           <table className="w-full border-collapse">
             <thead>
               <tr>
-                {['노선 번호', '탑승 시간', '하차 시간', '소요 시간'].map((h) => (
+                {['노선 번호', '탑승', '하차', '소요 시간'].map((h) => (
                   <th
                     key={h}
                     className="sticky top-[160px] z-[2] border-b border-indigo-300 bg-indigo-100 px-1 py-1.5 text-left text-xs font-semibold"
