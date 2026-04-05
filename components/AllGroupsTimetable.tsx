@@ -26,6 +26,8 @@ export default function AllGroupsTimetable({
   onFold,
 }: AllGroupsTimetableProps) {
   const [recentlyMovedToNow, setRecentlyMovedToNow] = React.useState(false)
+  const stickyHeaderRef = React.useRef<HTMLDivElement | null>(null)
+  const [tableHeaderTop, setTableHeaderTop] = React.useState(0)
 
   if (state.loading) {
     return (
@@ -68,6 +70,8 @@ export default function AllGroupsTimetable({
   const alightStationIndexMap = new Map<string, number>()
   const boardWalkByStation = new Map<string, number[]>()
   const alightWalkByStation = new Map<string, number[]>()
+  const boardWalkDistanceByStation = new Map<string, number[]>()
+  const alightWalkDistanceByStation = new Map<string, number[]>()
 
   function registerBoardStation(name: string): number {
     const key = String(name || '').trim()
@@ -98,16 +102,27 @@ export default function AllGroupsTimetable({
     map.set(key, arr)
   }
 
+  function pushFiniteDistance(map: Map<string, number[]>, stationName: string, distance: unknown) {
+    const key = String(stationName || '').trim()
+    const value = Number(distance)
+    if (!key || key === '-' || !Number.isFinite(value)) return
+    const arr = map.get(key) || []
+    arr.push(Math.max(0, value))
+    map.set(key, arr)
+  }
+
   for (const entry of filtered) {
     const board = String(entry.boardStationName || '').trim()
     const alight = String(entry.alightStationName || '').trim()
     if (board) {
       registerBoardStation(board)
       pushFiniteWalk(boardWalkByStation, board, entry.walkToBoardSec)
+      pushFiniteDistance(boardWalkDistanceByStation, board, entry.walkToBoardDistance)
     }
     if (alight) {
       registerAlightStation(alight)
       pushFiniteWalk(alightWalkByStation, alight, entry.walkFromAlightSec)
+      pushFiniteDistance(alightWalkDistanceByStation, alight, entry.walkFromAlightDistance)
     }
   }
 
@@ -116,6 +131,7 @@ export default function AllGroupsTimetable({
       name,
       index,
       boardWalkSecList: boardWalkByStation.get(name) || [],
+      boardWalkDistanceList: boardWalkDistanceByStation.get(name) || [],
     }))
     .sort((a, b) => a.index - b.index)
 
@@ -124,8 +140,11 @@ export default function AllGroupsTimetable({
       name,
       index,
       alightWalkSecList: alightWalkByStation.get(name) || [],
+      alightWalkDistanceList: alightWalkDistanceByStation.get(name) || [],
     }))
     .sort((a, b) => a.index - b.index)
+
+  const hasStationLegend = boardStationLegendArr.length > 0 || alightStationLegendArr.length > 0
 
   function formatWalkLegendText(secList: number[]): string {
     if (!secList || secList.length === 0) return '-'
@@ -133,6 +152,20 @@ export default function AllGroupsTimetable({
     const max = Math.max(...secList)
     if (min === max) return formatSecondsToMinuteText(min)
     return `${formatSecondsToMinuteText(min)}~${formatSecondsToMinuteText(max)}`
+  }
+
+  function formatDistanceText(distanceM: number): string {
+    const safe = Math.max(0, Math.round(Number(distanceM) || 0))
+    if (safe >= 1000) return `${(safe / 1000).toFixed(2)}km`
+    return `${safe}m`
+  }
+
+  function formatDistanceLegendText(distList: number[]): string {
+    if (!distList || distList.length === 0) return '-'
+    const min = Math.min(...distList)
+    const max = Math.max(...distList)
+    if (min === max) return formatDistanceText(min)
+    return `${formatDistanceText(min)}~${formatDistanceText(max)}`
   }
 
   const handleMoveToCurrentTime = () => {
@@ -146,10 +179,39 @@ export default function AllGroupsTimetable({
     return () => window.clearTimeout(timer)
   }, [recentlyMovedToNow])
 
+  React.useEffect(() => {
+    const el = stickyHeaderRef.current
+    const tableEl = tableScrollRef.current
+    if (!el || !tableEl) return
+
+    const update = () => {
+      const stickyRect = el.getBoundingClientRect()
+      const tableRect = tableEl.getBoundingClientRect()
+      const overlap = Math.max(0, Math.round(stickyRect.bottom - tableRect.top))
+      setTableHeaderTop(overlap)
+    }
+
+    update()
+    window.addEventListener('scroll', update, { passive: true })
+    window.addEventListener('resize', update)
+
+    let ro: ResizeObserver | null = null
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => update())
+      ro.observe(el)
+    }
+
+    return () => {
+      window.removeEventListener('scroll', update)
+      window.removeEventListener('resize', update)
+      if (ro) ro.disconnect()
+    }
+  }, [hasStationLegend, displayedRouteArr.length, filtered.length])
+
   return (
     <div className="mb-3.5 rounded-lg border border-blue-200 bg-blue-50 p-2.5">
       {/* Sticky header */}
-      <div className="sticky top-[69px] z-[3] bg-blue-50 pb-1">
+      <div ref={stickyHeaderRef} className="sticky top-[56px] sm:top-[69px] z-[3] bg-blue-50 pb-1">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
             <div>
@@ -238,7 +300,7 @@ export default function AllGroupsTimetable({
           )}
         </div>
 
-        {(boardStationLegendArr.length > 0 || alightStationLegendArr.length > 0) && (
+        {hasStationLegend && (
           <div className="text-[11px] text-slate-700">
             <div className="rounded border border-slate-200 bg-slate-50 p-1.5">
                   <div className="mb-1 text-[10px] font-semibold text-slate-700">탑승 정류장</div>
@@ -254,7 +316,7 @@ export default function AllGroupsTimetable({
                             {item.index}
                           </span>
                           <span className="font-medium">{item.name}</span>
-                          <span className="text-slate-500">(도보 {formatWalkLegendText(item.boardWalkSecList)})</span>
+                          <span className="text-slate-500">({formatWalkLegendText(item.boardWalkSecList)} · {formatDistanceLegendText(item.boardWalkDistanceList)})</span>
                         </span>
                       ))}
                   </div>
@@ -273,7 +335,7 @@ export default function AllGroupsTimetable({
                         {item.index}
                       </span>
                       <span className="font-medium">{item.name}</span>
-                      <span className="text-slate-500">(도보 {formatWalkLegendText(item.alightWalkSecList)})</span>
+                      <span className="text-slate-500">({formatWalkLegendText(item.alightWalkSecList)} · {formatDistanceLegendText(item.alightWalkDistanceList)})</span>
                     </span>
                   ))}
               </div>
@@ -290,7 +352,8 @@ export default function AllGroupsTimetable({
               {['노선 번호', '탑승', '하차', '소요 시간'].map((h) => (
                 <th
                   key={h}
-                  className="sticky top-0 z-[4] border-b border-indigo-300 bg-indigo-100 px-1 py-1.5 text-left text-xs font-semibold"
+                  className="sticky z-[4] border-b border-indigo-300 bg-indigo-100 px-1 py-1.5 text-left text-xs font-semibold"
+                  style={{ top: tableHeaderTop }}
                 >
                   {h}
                 </th>
