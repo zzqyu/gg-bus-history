@@ -22,6 +22,13 @@ import ResultsSection from '../components/ResultsSection'
 import SharePreviewModal from '../components/SharePreviewModal'
 import Image from 'next/image'
 
+// Dev StrictMode(초기 마운트 이중 실행)에서도 동일 쿼리의 중복 호출을 막기 위한
+// 브라우저 전역 in-flight/cache 저장소
+type AllGroupsGlobalStore = {
+  inFlight?: Record<string, Promise<any>>
+  cache?: Record<string, any>
+}
+
 export default function Home() {
   const [ax, setAx] = useState('')
   const [ay, setAy] = useState('')
@@ -77,6 +84,46 @@ export default function Home() {
   const routeBadgeRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const resultsSectionRef = useRef<HTMLDivElement>(null)
   const defaultMapCenter = { lon: 127.053749, lat: 37.289522 }
+
+  function buildAllGroupsTimetableQueryString(): string {
+    const params = new URLSearchParams({ ax, ay, bx, by, aradius: startRadius, bradius: endRadius })
+    if (sday) params.set('sday', sday)
+    return params.toString()
+  }
+
+  async function requestAllGroupsTimetableOnce(): Promise<any> {
+    const query = buildAllGroupsTimetableQueryString()
+    if (typeof window !== 'undefined') {
+      const w = window as Window & { __allGroupsGlobalStore?: AllGroupsGlobalStore }
+      if (!w.__allGroupsGlobalStore) w.__allGroupsGlobalStore = {}
+      if (!w.__allGroupsGlobalStore.inFlight) w.__allGroupsGlobalStore.inFlight = {}
+      if (!w.__allGroupsGlobalStore.cache) w.__allGroupsGlobalStore.cache = {}
+
+      const cached = w.__allGroupsGlobalStore.cache[query]
+      if (cached) return cached
+
+      const inFlight = w.__allGroupsGlobalStore.inFlight[query]
+      if (inFlight) return inFlight
+
+      const p = fetch('/api/allGroupsTimetable?' + query)
+        .then((r) => r.json())
+        .then((j) => {
+          w.__allGroupsGlobalStore!.cache![query] = j
+          return j
+        })
+        .finally(() => {
+          if (w.__allGroupsGlobalStore && w.__allGroupsGlobalStore.inFlight) {
+            delete w.__allGroupsGlobalStore.inFlight[query]
+          }
+        })
+
+      w.__allGroupsGlobalStore.inFlight[query] = p
+      return p
+    }
+
+    const r = await fetch('/api/allGroupsTimetable?' + query)
+    return r.json()
+  }
 
   // ─── Utility helpers ───────────────────────────────────────────────
 
@@ -817,10 +864,7 @@ export default function Home() {
     setShowAllGroupsTimetable(true)
     setShowGroupList(false)
     try {
-      const params = new URLSearchParams({ ax, ay, bx, by, aradius: startRadius, bradius: endRadius })
-      if (sday) params.set('sday', sday)
-      const r = await fetch('/api/allGroupsTimetable?' + params.toString())
-      const j = await r.json()
+      const j = await requestAllGroupsTimetableOnce()
       setAllGroupsTimetable({ loading: false, data: j })
     } catch (err) {
       setAllGroupsTimetable({ loading: false, error: String(err) })
@@ -849,10 +893,7 @@ export default function Home() {
     const p = (async () => {
       setAllGroupsTimetable({ loading: true })
       try {
-        const params = new URLSearchParams({ ax, ay, bx, by, aradius: startRadius, bradius: endRadius })
-        if (sday) params.set('sday', sday)
-        const r = await fetch('/api/allGroupsTimetable?' + params.toString())
-        const j = await r.json()
+        const j = await requestAllGroupsTimetableOnce()
         setAllGroupsTimetable({ loading: false, data: j })
       } catch (err) {
         setAllGroupsTimetable({ loading: false, error: String(err) })
