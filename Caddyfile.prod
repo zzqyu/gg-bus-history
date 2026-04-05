@@ -11,7 +11,7 @@ bustal-time.kro.kr {
 
     reverse_proxy web:3000 {
         transport http {
-            versions h1 h2
+            versions 1.1 2
         }
     }
     encode gzip
@@ -23,4 +23,3 @@ bustal-time.kro.kr {
     # Upgrade insecure requests to HTTPS and allow typical resources
     header Content-Security-Policy "upgrade-insecure-requests; default-src 'self' 'unsafe-inline' https: data:"
 }
-
