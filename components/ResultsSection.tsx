@@ -23,14 +23,14 @@ interface ResultsSectionProps {
   groupTimetableHidden: Record<string, boolean>
   allGroupsHighlightedRowIndex: number
   groupHighlightedRowIndexes: Record<string, number>
-  allGroupsSelectedRouteId: string | null
+  allGroupsSelectedRouteIds: string[]
   expandedGroupKey: string | null
   allGroupsTableScrollRef: React.RefObject<HTMLDivElement>
   groupTableScrollRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>
   routeBadgeRowRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>
   onShare: () => void
   onFetchAllGroupsTimetable: () => void
-  onSelectAllGroupsRoute: (routeId: string | null) => void
+  onSelectAllGroupsRoutes: (routeIds: string[]) => void
   onMoveAllGroupsToCurrentTime: () => void
   onFoldAllGroupsTimetable: () => void
   onShowGroupList: () => void
@@ -55,14 +55,14 @@ export default function ResultsSection({
   groupTimetableHidden,
   allGroupsHighlightedRowIndex,
   groupHighlightedRowIndexes,
-  allGroupsSelectedRouteId,
+  allGroupsSelectedRouteIds,
   expandedGroupKey,
   allGroupsTableScrollRef,
   groupTableScrollRefs,
   routeBadgeRowRefs,
   onShare,
   onFetchAllGroupsTimetable,
-  onSelectAllGroupsRoute,
+  onSelectAllGroupsRoutes,
   onMoveAllGroupsToCurrentTime,
   onFoldAllGroupsTimetable,
   onShowGroupList,
@@ -169,9 +169,16 @@ export default function ResultsSection({
       .filter((v): v is NonNullable<typeof v> => !!v)
 
     if (!candidates.length) return Number.POSITIVE_INFINITY
-    const boardable = candidates.filter((x) => x.boardMin >= earliestBoard)
-    const target = boardable.length > 0 ? boardable : candidates
-    return Math.min(...target.map((x) => x.arrivalMin))
+    const normalized = candidates.map((x) => {
+      let board = x.boardMin
+      let arrival = x.arrivalMin
+      while (board < earliestBoard) {
+        board += 1440
+        arrival += 1440
+      }
+      return { boardMin: board, arrivalMin: arrival }
+    })
+    return Math.min(...normalized.map((x) => x.arrivalMin))
   }
 
   const sortedGroups = groups
@@ -255,9 +262,9 @@ export default function ResultsSection({
           state={allGroupsTimetable}
           sday={sday}
           highlightedRowIndex={allGroupsHighlightedRowIndex}
-          selectedRouteId={allGroupsSelectedRouteId}
+          selectedRouteIds={allGroupsSelectedRouteIds}
           tableScrollRef={allGroupsTableScrollRef}
-          onSelectRoute={onSelectAllGroupsRoute}
+          onSelectRoutes={onSelectAllGroupsRoutes}
           onMoveToCurrentTime={onMoveAllGroupsToCurrentTime}
           onFold={onFoldAllGroupsTimetable}
         />

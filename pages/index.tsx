@@ -57,7 +57,7 @@ export default function Home() {
   const [groupTimetableHidden, setGroupTimetableHidden] = useState<Record<string, boolean>>({})
   const [allGroupsHighlightedRowIndex, setAllGroupsHighlightedRowIndex] = useState(-1)
   const [groupHighlightedRowIndexes, setGroupHighlightedRowIndexes] = useState<Record<string, number>>({})
-  const [allGroupsSelectedRouteId, setAllGroupsSelectedRouteId] = useState<string | null>(null)
+  const [allGroupsSelectedRouteIds, setAllGroupsSelectedRouteIds] = useState<string[]>([])
   const [locatingStart, setLocatingStart] = useState(false)
   const [locatingEnd, setLocatingEnd] = useState(false)
   const [locatingMap, setLocatingMap] = useState(false)
@@ -422,10 +422,17 @@ export default function Home() {
       .filter((x) => x.routeId && x.boardMin != null && x.alightMin != null) as Array<{ routeId: string; boardMin: number; alightMin: number }>
 
     if (!candidates.length) return String(g.routes?.[0]?.routeId || '') || null
-    const selectable = candidates.filter((x) => x.boardMin >= earliestBoardMinutes)
-    const base = selectable.length ? selectable : candidates
-    base.sort((a, b) => (a.alightMin - b.alightMin) || (a.boardMin - b.boardMin))
-    return base[0]?.routeId || null
+    const normalized = candidates.map((x) => {
+      let board = x.boardMin
+      let alight = x.alightMin
+      while (board < earliestBoardMinutes) {
+        board += 1440
+        alight += 1440
+      }
+      return { ...x, boardMin: board, alightMin: alight }
+    })
+    normalized.sort((a, b) => (a.alightMin - b.alightMin) || (a.boardMin - b.boardMin))
+    return normalized[0]?.routeId || null
   }
 
   async function renderSelectedGroupRouteLines(groupKey: string, g: Group): Promise<void> {
@@ -542,7 +549,7 @@ export default function Home() {
     setGroupTimetableHidden({})
     setAllGroupsHighlightedRowIndex(-1)
     setGroupHighlightedRowIndexes({})
-    setAllGroupsSelectedRouteId(null)
+    setAllGroupsSelectedRouteIds([])
     clearWalkPolylines()
     if (!options.keepExpandedGroup) setExpandedGroupKey(null)
   }
@@ -845,7 +852,7 @@ export default function Home() {
 
   async function fetchAllGroupsTimetable() {
     // Always reset route filter when the table is opened
-    setAllGroupsSelectedRouteId(null)
+    setAllGroupsSelectedRouteIds([])
     // Already have data (or error) → just show it
     if (allGroupsTimetable && !allGroupsTimetable.loading) {
       setShowAllGroupsTimetable(true)
@@ -944,8 +951,9 @@ export default function Home() {
 
   function moveAllGroupsToCurrentTime() {
     const combinedAll = (allGroupsTimetable && allGroupsTimetable.data && allGroupsTimetable.data.combined) || []
-    const entries = allGroupsSelectedRouteId
-      ? combinedAll.filter((e) => String(e.routeId) === String(allGroupsSelectedRouteId))
+    const selectedRouteSet = new Set((allGroupsSelectedRouteIds || []).map((x) => String(x)))
+    const entries = selectedRouteSet.size > 0
+      ? combinedAll.filter((e) => selectedRouteSet.has(String(e.routeId || '')))
       : combinedAll
     const rowIndex = getNextBoardRowIndex(entries)
     if (rowIndex < 0) return
@@ -1616,14 +1624,14 @@ export default function Home() {
             groupTimetableHidden={groupTimetableHidden}
             allGroupsHighlightedRowIndex={allGroupsHighlightedRowIndex}
             groupHighlightedRowIndexes={groupHighlightedRowIndexes}
-            allGroupsSelectedRouteId={allGroupsSelectedRouteId}
+            allGroupsSelectedRouteIds={allGroupsSelectedRouteIds}
             expandedGroupKey={expandedGroupKey}
             allGroupsTableScrollRef={allGroupsTableScrollRef}
             groupTableScrollRefs={groupTableScrollRefs}
             routeBadgeRowRefs={routeBadgeRowRefs}
             onShare={handleShare}
             onFetchAllGroupsTimetable={fetchAllGroupsTimetableAndFocus}
-            onSelectAllGroupsRoute={setAllGroupsSelectedRouteId}
+            onSelectAllGroupsRoutes={setAllGroupsSelectedRouteIds}
             onMoveAllGroupsToCurrentTime={moveAllGroupsToCurrentTime}
             onFoldAllGroupsTimetable={() => {
               setShowAllGroupsTimetable(false)
