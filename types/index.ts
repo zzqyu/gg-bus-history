@@ -20,10 +20,12 @@ export interface Group {
     startToBoard?: {
       distance?: number
       timeSec?: number
+      kakaoUrl?: string
     }
     alightToEnd?: {
       distance?: number
       timeSec?: number
+      kakaoUrl?: string
     }
     totalDistance?: number
     totalTimeSec?: number
@@ -48,6 +50,9 @@ export interface TimetableEntry {
   walkToBoardSec?: number
   walkFromAlightSec?: number
   walkTotalSec?: number
+  walkToBoardDistance?: number
+  walkFromAlightDistance?: number
+  walkTotalDistance?: number
 }
 
 export interface RouteTimetable {

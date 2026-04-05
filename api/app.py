@@ -8,7 +8,7 @@ import requests
 from requests.exceptions import RequestException
 import logging
 import time
-import os
+from urllib.parse import quote
 
 app = FastAPI()
 
@@ -273,7 +273,7 @@ def prefetch_past_arrivals(fetch_keys, max_workers=12):
 
 
 def estimate_walk_time_seconds(distance_m: float) -> int:
-    """Fallback walking time estimate (4km/h)."""
+    """직선거리 기준 도보시간 추정치(4km/h × 우회계수 1.3)."""
     try:
         d = float(distance_m)
     except Exception:
@@ -281,115 +281,21 @@ def estimate_walk_time_seconds(distance_m: float) -> int:
     if d <= 0:
         return 0
     speed_mps = 4000.0 / 3600.0
-    return int(round(d / speed_mps))
+    detour_factor = 1.3
+    return int(round((d / speed_mps) * detour_factor))
 
 
-def fetch_pedestrian_route(start_lon, start_lat, end_lon, end_lat, start_name='출발지', end_name='도착지', include_path=False):
-    """Call TMAP pedestrian API and return walk distance/time (+ path if requested)."""
+def build_kakao_walk_url(start_name, start_lon, start_lat, end_name, end_lon, end_lat):
     try:
-        s_lon = float(start_lon)
+        s_name = quote(str(start_name or '출발지').strip() or '출발지', safe='')
+        e_name = quote(str(end_name or '도착지').strip() or '도착지', safe='')
         s_lat = float(start_lat)
-        e_lon = float(end_lon)
+        s_lon = float(start_lon)
         e_lat = float(end_lat)
+        e_lon = float(end_lon)
     except Exception:
         return None
-
-    # identical point shortcut
-    if abs(s_lon - e_lon) < 1e-9 and abs(s_lat - e_lat) < 1e-9:
-        return {
-            'distance': 0,
-            'timeSec': 0,
-            'path': [[s_lon, s_lat], [e_lon, e_lat]] if include_path else None,
-        }
-
-    app_key = (os.getenv('TMAP_APP_KEY') or '').strip()
-    if not app_key:
-        return None
-
-    cache_key = (
-        'pedestrianRoute',
-        round(s_lon, 6), round(s_lat, 6),
-        round(e_lon, 6), round(e_lat, 6),
-        bool(include_path),
-    )
-    cached = cache_get(cache_key)
-    if cached is not None:
-        return cached
-
-    url = 'https://apis.openapi.sk.com/tmap/routes/pedestrian?version=1&format=json'
-    headers = {
-        'accept': 'application/json',
-        'content-type': 'application/json',
-        'appKey': app_key,
-    }
-    payload = {
-        'startX': str(s_lon),
-        'startY': str(s_lat),
-        'endX': str(e_lon),
-        'endY': str(e_lat),
-        'startName': str(start_name or '출발지'),
-        'endName': str(end_name or '도착지'),
-        'reqCoordType': 'WGS84GEO',
-        'resCoordType': 'WGS84GEO',
-        'searchOption': '0',
-    }
-
-    try:
-        r = requests.post(url, headers=headers, json=payload, timeout=7)
-        r.raise_for_status()
-        doc = r.json() or {}
-        features = doc.get('features') or []
-
-        total_distance = None
-        total_time = None
-        path_coords = []
-
-        for f in features:
-            if not isinstance(f, dict):
-                continue
-            props = f.get('properties') or {}
-            if total_distance is None and props.get('totalDistance') is not None:
-                try:
-                    total_distance = int(float(props.get('totalDistance')))
-                except Exception:
-                    pass
-            if total_time is None and props.get('totalTime') is not None:
-                try:
-                    total_time = int(float(props.get('totalTime')))
-                except Exception:
-                    pass
-
-            if include_path:
-                geo = f.get('geometry') or {}
-                gtype = str(geo.get('type') or '')
-                if gtype != 'LineString':
-                    continue
-                coords = geo.get('coordinates') or []
-                for c in coords:
-                    if not isinstance(c, (list, tuple)) or len(c) < 2:
-                        continue
-                    try:
-                        lon = float(c[0])
-                        lat = float(c[1])
-                        path_coords.append([lon, lat])
-                    except Exception:
-                        continue
-
-        if total_distance is None:
-            total_distance = int(round(haversine(s_lat, s_lon, e_lat, e_lon)))
-        if total_time is None:
-            total_time = estimate_walk_time_seconds(total_distance)
-
-        out = {
-            'distance': total_distance,
-            'timeSec': total_time,
-            'path': path_coords if include_path else None,
-        }
-        cache_set(cache_key, out)
-        return out
-    except Exception as e:
-        logger.warning(f"fetch_pedestrian_route failed: {e}")
-        return None
+    return f"https://map.kakao.com/link/by/walk/{s_name},{s_lat},{s_lon}/{e_name},{e_lat},{e_lon}"
 
 
 def build_timetables_for_routes(routes, board_station_id: str, alight_station_id: str, sday_norm: str):
@@ -714,14 +620,8 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
         d = haversine(ay, ax, s['lat'], s['lon'])
         if d <= start_radius:
             s['dist'] = d
-            walk_info = fetch_pedestrian_route(
-                ax, ay, s['lon'], s['lat'],
-                start_name='출발지',
-                end_name=str(s.get('stationName') or '탑승 정류장'),
-                include_path=False,
-            )
-            s['walkDistance'] = int(walk_info.get('distance')) if isinstance(walk_info, dict) and walk_info.get('distance') is not None else int(round(d))
-            s['walkTimeSec'] = int(walk_info.get('timeSec')) if isinstance(walk_info, dict) and walk_info.get('timeSec') is not None else estimate_walk_time_seconds(d)
+            s['walkDistance'] = int(round(d))
+            s['walkTimeSec'] = estimate_walk_time_seconds(d)
             near_a.append(s)
 
     near_b = []
@@ -729,14 +629,8 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
         d = haversine(by, bx, s['lat'], s['lon'])
         if d <= end_radius:
             s['dist'] = d
-            walk_info = fetch_pedestrian_route(
-                s['lon'], s['lat'], bx, by,
-                start_name=str(s.get('stationName') or '하차 정류장'),
-                end_name='도착지',
-                include_path=False,
-            )
-            s['walkDistance'] = int(walk_info.get('distance')) if isinstance(walk_info, dict) and walk_info.get('distance') is not None else int(round(d))
-            s['walkTimeSec'] = int(walk_info.get('timeSec')) if isinstance(walk_info, dict) and walk_info.get('timeSec') is not None else estimate_walk_time_seconds(d)
+            s['walkDistance'] = int(round(d))
+            s['walkTimeSec'] = estimate_walk_time_seconds(d)
             near_b.append(s)
 
     if not near_a or not near_b:
@@ -1044,10 +938,12 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
             'startToBoard': {
                 'distance': sw_dist,
                 'timeSec': sw_time,
+                'kakaoUrl': build_kakao_walk_url('출발지', ax, ay, str(board.get('stationName') or '탑승 정류장'), board.get('lon'), board.get('lat')),
             },
             'alightToEnd': {
                 'distance': ew_dist,
                 'timeSec': ew_time,
+                'kakaoUrl': build_kakao_walk_url(str(alight.get('stationName') or '하차 정류장'), alight.get('lon'), alight.get('lat'), '도착지', bx, by),
             },
             'totalDistance': sw_dist + ew_dist,
             'totalTimeSec': sw_time + ew_time,
@@ -1237,7 +1133,16 @@ def all_groups_timetable(ax: float, ay: float, bx: float, by: float, radius: int
             walk_from_alight_sec = int(walk_end.get('timeSec') or 0)
         except Exception:
             walk_from_alight_sec = 0
+        try:
+            walk_to_board_dist = int(walk_start.get('distance') or 0)
+        except Exception:
+            walk_to_board_dist = 0
+        try:
+            walk_from_alight_dist = int(walk_end.get('distance') or 0)
+        except Exception:
+            walk_from_alight_dist = 0
         walk_total_sec = walk_to_board_sec + walk_from_alight_sec
+        walk_total_dist = walk_to_board_dist + walk_from_alight_dist
 
         board_station_id = str(board.get('stationId'))
         alight_station_id = str(alight.get('stationId'))
@@ -1291,6 +1196,9 @@ def all_groups_timetable(ax: float, ay: float, bx: float, by: float, radius: int
                 'walkToBoardSec': walk_to_board_sec,
                 'walkFromAlightSec': walk_from_alight_sec,
                 'walkTotalSec': walk_total_sec,
+                'walkToBoardDistance': walk_to_board_dist,
+                'walkFromAlightDistance': walk_from_alight_dist,
+                'walkTotalDistance': walk_total_dist,
                 '_bt_parsed': bt,
                 '_order_gap': order_gap,
                 '_group_score': group_score,
@@ -1354,43 +1262,6 @@ def all_groups_timetable(ax: float, ay: float, bx: float, by: float, radius: int
     }
     cache_set(cache_key, out)
     return out
-
-
-@app.get('/walkRoute')
-def walk_route(ax: float, ay: float, boardx: float, boardy: float, alightx: float, alighty: float, bx: float, by: float):
-    """Return pedestrian guide for start->board and alight->end, including polyline paths."""
-    start_leg = fetch_pedestrian_route(
-        ax, ay, boardx, boardy,
-        start_name='출발지',
-        end_name='탑승 정류장',
-        include_path=True,
-    )
-    end_leg = fetch_pedestrian_route(
-        alightx, alighty, bx, by,
-        start_name='하차 정류장',
-        end_name='도착지',
-        include_path=True,
-    )
-
-    def _fallback(s_lon, s_lat, e_lon, e_lat):
-        dist = int(round(haversine(float(s_lat), float(s_lon), float(e_lat), float(e_lon))))
-        return {
-            'distance': dist,
-            'timeSec': estimate_walk_time_seconds(dist),
-            'path': [[float(s_lon), float(s_lat)], [float(e_lon), float(e_lat)]],
-        }
-
-    if not start_leg:
-        start_leg = _fallback(ax, ay, boardx, boardy)
-    if not end_leg:
-        end_leg = _fallback(alightx, alighty, bx, by)
-
-    return {
-        'startToBoard': start_leg,
-        'alightToEnd': end_leg,
-        'totalTimeSec': int(start_leg.get('timeSec') or 0) + int(end_leg.get('timeSec') or 0),
-        'totalDistance': int(start_leg.get('distance') or 0) + int(end_leg.get('distance') or 0),
-    }
 
 
 @app.get('/routeLine')
