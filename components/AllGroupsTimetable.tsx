@@ -1,12 +1,14 @@
 import React from 'react'
-import { AllGroupsTimetableState, TimetableEntry } from '../types'
+import { AllGroupsTimetableState, StationNumberMaps, TimetableEntry } from '../types'
 import { compareRoutes } from '../utils/routeUtils'
 import { formatDisplayTime, formatDuration, formatSecondsToMinuteText } from '../utils/timeUtils'
 import { getRouteNameStyle } from '../utils/styleUtils'
+import { getAlightStationNumber, getBoardStationNumber } from '../utils/stationNumberUtils'
 
 interface AllGroupsTimetableProps {
   state: AllGroupsTimetableState
   sday: string
+  stationNumberMaps: StationNumberMaps
   highlightedRowIndex: number
   selectedRouteIds: string[]
   tableScrollRef: React.RefObject<HTMLDivElement>
@@ -18,6 +20,7 @@ interface AllGroupsTimetableProps {
 export default function AllGroupsTimetable({
   state,
   sday,
+  stationNumberMaps,
   highlightedRowIndex,
   selectedRouteIds,
   tableScrollRef,
@@ -66,35 +69,20 @@ export default function AllGroupsTimetable({
     return aSelected ? -1 : 1
   })
 
-  const boardStationIndexMap = new Map<string, number>()
-  const alightStationIndexMap = new Map<string, number>()
   const boardWalkByStation = new Map<string, number[]>()
   const alightWalkByStation = new Map<string, number[]>()
   const boardWalkDistanceByStation = new Map<string, number[]>()
   const alightWalkDistanceByStation = new Map<string, number[]>()
 
-  function registerBoardStation(name: string): number {
-    const key = String(name || '').trim()
-    if (!key || key === '-') return 0
-    const existing = boardStationIndexMap.get(key)
-    if (existing) return existing
-    const next = boardStationIndexMap.size + 1
-    boardStationIndexMap.set(key, next)
-    return next
+  function stationLegendKey(stationId: unknown, stationName: unknown): string {
+    const sid = String(stationId || '').trim()
+    const sname = String(stationName || '').trim()
+    if (sid) return `id:${sid}|name:${sname}`
+    return `name:${sname}`
   }
 
-  function registerAlightStation(name: string): number {
-    const key = String(name || '').trim()
-    if (!key || key === '-') return 0
-    const existing = alightStationIndexMap.get(key)
-    if (existing) return existing
-    const next = alightStationIndexMap.size + 1
-    alightStationIndexMap.set(key, next)
-    return next
-  }
-
-  function pushFiniteWalk(map: Map<string, number[]>, stationName: string, sec: unknown) {
-    const key = String(stationName || '').trim()
+  function pushFiniteWalk(map: Map<string, number[]>, stationKey: string, sec: unknown) {
+    const key = String(stationKey || '').trim()
     const value = Number(sec)
     if (!key || key === '-' || !Number.isFinite(value)) return
     const arr = map.get(key) || []
@@ -102,8 +90,8 @@ export default function AllGroupsTimetable({
     map.set(key, arr)
   }
 
-  function pushFiniteDistance(map: Map<string, number[]>, stationName: string, distance: unknown) {
-    const key = String(stationName || '').trim()
+  function pushFiniteDistance(map: Map<string, number[]>, stationKey: string, distance: unknown) {
+    const key = String(stationKey || '').trim()
     const value = Number(distance)
     if (!key || key === '-' || !Number.isFinite(value)) return
     const arr = map.get(key) || []
@@ -112,36 +100,48 @@ export default function AllGroupsTimetable({
   }
 
   for (const entry of filtered) {
+    const boardKey = stationLegendKey(entry.boardStationId, entry.boardStationName)
+    const alightKey = stationLegendKey(entry.alightStationId, entry.alightStationName)
     const board = String(entry.boardStationName || '').trim()
     const alight = String(entry.alightStationName || '').trim()
     if (board) {
-      registerBoardStation(board)
-      pushFiniteWalk(boardWalkByStation, board, entry.walkToBoardSec)
-      pushFiniteDistance(boardWalkDistanceByStation, board, entry.walkToBoardDistance)
+      pushFiniteWalk(boardWalkByStation, boardKey, entry.walkToBoardSec)
+      pushFiniteDistance(boardWalkDistanceByStation, boardKey, entry.walkToBoardDistance)
     }
     if (alight) {
-      registerAlightStation(alight)
-      pushFiniteWalk(alightWalkByStation, alight, entry.walkFromAlightSec)
-      pushFiniteDistance(alightWalkDistanceByStation, alight, entry.walkFromAlightDistance)
+      pushFiniteWalk(alightWalkByStation, alightKey, entry.walkFromAlightSec)
+      pushFiniteDistance(alightWalkDistanceByStation, alightKey, entry.walkFromAlightDistance)
     }
   }
 
-  const boardStationLegendArr = Array.from(boardStationIndexMap.entries())
-    .map(([name, index]) => ({
-      name,
-      index,
-      boardWalkSecList: boardWalkByStation.get(name) || [],
-      boardWalkDistanceList: boardWalkDistanceByStation.get(name) || [],
-    }))
+  const boardStationLegendArr = Array.from(new Set(filtered.map((e) => stationLegendKey(e.boardStationId, e.boardStationName))))
+    .map((key) => {
+      const entry = filtered.find((x) => stationLegendKey(x.boardStationId, x.boardStationName) === key)
+      const name = String(entry?.boardStationName || '').trim()
+      const index = getBoardStationNumber(stationNumberMaps, String(entry?.boardStationId || ''), name) || 0
+      return {
+        name,
+        index,
+        boardWalkSecList: boardWalkByStation.get(key) || [],
+        boardWalkDistanceList: boardWalkDistanceByStation.get(key) || [],
+      }
+    })
+    .filter((x) => x.index > 0)
     .sort((a, b) => a.index - b.index)
 
-  const alightStationLegendArr = Array.from(alightStationIndexMap.entries())
-    .map(([name, index]) => ({
-      name,
-      index,
-      alightWalkSecList: alightWalkByStation.get(name) || [],
-      alightWalkDistanceList: alightWalkDistanceByStation.get(name) || [],
-    }))
+  const alightStationLegendArr = Array.from(new Set(filtered.map((e) => stationLegendKey(e.alightStationId, e.alightStationName))))
+    .map((key) => {
+      const entry = filtered.find((x) => stationLegendKey(x.alightStationId, x.alightStationName) === key)
+      const name = String(entry?.alightStationName || '').trim()
+      const index = getAlightStationNumber(stationNumberMaps, String(entry?.alightStationId || ''), name) || 0
+      return {
+        name,
+        index,
+        alightWalkSecList: alightWalkByStation.get(key) || [],
+        alightWalkDistanceList: alightWalkDistanceByStation.get(key) || [],
+      }
+    })
+    .filter((x) => x.index > 0)
     .sort((a, b) => a.index - b.index)
 
   const hasStationLegend = boardStationLegendArr.length > 0 || alightStationLegendArr.length > 0
@@ -373,7 +373,7 @@ export default function AllGroupsTimetable({
                 <td className="border-b border-slate-300 px-1 py-1.5 text-xs whitespace-nowrap">
                   {(() => {
                     const boardName = String(e.boardStationName || '').trim()
-                    const boardNo = boardName ? boardStationIndexMap.get(boardName) : null
+                    const boardNo = getBoardStationNumber(stationNumberMaps, String(e.boardStationId || ''), boardName)
                     return (
                       <span className="inline-flex items-center gap-1" title={boardName || '-'}>
                         <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold text-white">
@@ -387,7 +387,7 @@ export default function AllGroupsTimetable({
                 <td className="border-b border-slate-300 px-1 py-1.5 text-xs whitespace-nowrap">
                   {(() => {
                     const alightName = String(e.alightStationName || '').trim()
-                    const alightNo = alightName ? alightStationIndexMap.get(alightName) : null
+                    const alightNo = getAlightStationNumber(stationNumberMaps, String(e.alightStationId || ''), alightName)
                     return (
                       <span className="inline-flex items-center gap-1" title={alightName || '-'}>
                         <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-600 px-1 text-[10px] font-bold text-white">

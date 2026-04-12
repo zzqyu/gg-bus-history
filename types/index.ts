@@ -33,12 +33,14 @@ export interface Group {
 }
 
 export interface TimetableEntry {
+  boardStationId?: string
   routeId?: string
   routeName?: string
   routeTypeCd?: string
   boardTime?: string
   alightTime?: string
   vehId?: string
+  alightStationId?: string
   boardStationName?: string
   alightStationName?: string
   orderGap?: number
@@ -115,4 +117,11 @@ export interface RouteBadgeInfo {
   routeId: string
   routeName: string
   routeTypeCd?: string
+}
+
+export interface StationNumberMaps {
+  boardByStationId: Record<string, number>
+  boardByStationName: Record<string, number>
+  alightByStationId: Record<string, number>
+  alightByStationName: Record<string, number>
 }

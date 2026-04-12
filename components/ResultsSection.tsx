@@ -5,6 +5,7 @@ import {
   GroupTimetableState,
   AllGroupsTimetableState,
   TimetableEntry,
+  StationNumberMaps,
 } from '../types'
 import { getGroupKey, getGroupRouteBadges } from '../utils/routeUtils'
 import { formatDisplayTime } from '../utils/timeUtils'
@@ -26,6 +27,7 @@ interface ResultsSectionProps {
   allGroupsTableScrollRef: React.RefObject<HTMLDivElement>
   groupTableScrollRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>
   routeBadgeRowRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>
+  stationNumberMaps: StationNumberMaps
   onShare: () => void
   onFetchAllGroupsTimetable: () => void
   onSelectAllGroupsRoutes: (routeIds: string[]) => void
@@ -56,6 +58,7 @@ export default function ResultsSection({
   allGroupsTableScrollRef,
   groupTableScrollRefs,
   routeBadgeRowRefs,
+  stationNumberMaps,
   onShare,
   onFetchAllGroupsTimetable,
   onSelectAllGroupsRoutes,
@@ -274,6 +277,7 @@ export default function ResultsSection({
         <AllGroupsTimetable
           state={allGroupsTimetable}
           sday={sday}
+          stationNumberMaps={stationNumberMaps}
           highlightedRowIndex={allGroupsHighlightedRowIndex}
           selectedRouteIds={allGroupsSelectedRouteIds}
           tableScrollRef={allGroupsTableScrollRef}
@@ -336,6 +340,7 @@ export default function ResultsSection({
               visibleRouteBadges={badges}
               prefetchingBusDuration={isPrefetchingBusDuration}
               prefetchedBusDurationText={getPrefetchedBusDurationText(g)}
+              stationNumberMaps={stationNumberMaps}
               tableScrollRef={(el) => {
                 groupTableScrollRefs.current[groupKey] = el
               }}

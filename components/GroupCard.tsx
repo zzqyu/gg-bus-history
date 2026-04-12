@@ -1,7 +1,8 @@
 import React from 'react'
-import { Group, GroupTimetableState, RouteBadgeInfo, TimetableEntry } from '../types'
+import { Group, GroupTimetableState, RouteBadgeInfo, StationNumberMaps, TimetableEntry } from '../types'
 import { getRouteNameStyle } from '../utils/styleUtils'
 import { formatDisplayTime, formatSecondsToMinuteText } from '../utils/timeUtils'
+import { getAlightStationNumber, getBoardStationNumber } from '../utils/stationNumberUtils'
 import GroupTimetable from './GroupTimetable'
 
 interface GroupCardProps {
@@ -18,6 +19,7 @@ interface GroupCardProps {
   prefetchedCombined: TimetableEntry[]
   highlightedRowIndex: number
   visibleRouteBadges: RouteBadgeInfo[]
+  stationNumberMaps: StationNumberMaps
   tableScrollRef: (el: HTMLDivElement | null) => void
   badgeRowRef: (el: HTMLDivElement | null) => void
   onCardClick: (e: React.MouseEvent) => void
@@ -43,6 +45,7 @@ export default function GroupCard({
   prefetchedCombined,
   highlightedRowIndex,
   visibleRouteBadges,
+  stationNumberMaps,
   tableScrollRef,
   badgeRowRef,
   onCardClick,
@@ -207,13 +210,23 @@ export default function GroupCard({
           <div />
           <div className="relative h-4">
             <div className="absolute left-1/2 top-0 w-max max-w-[140px] -translate-x-1/2 truncate text-center text-slate-700" title={group.board.stationName}>
-              {group.board.stationName}
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold text-white">
+                  A{getBoardStationNumber(stationNumberMaps, group.board.stationId, group.board.stationName) ?? '-'}
+                </span>
+                <span>{group.board.stationName}</span>
+              </span>
             </div>
           </div>
           <div />
           <div className="relative h-4">
             <div className="absolute left-1/2 top-0 w-max max-w-[140px] -translate-x-1/2 truncate text-center text-slate-700" title={group.alight.stationName}>
-              {group.alight.stationName}
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-600 px-1 text-[10px] font-bold text-white">
+                  B{getAlightStationNumber(stationNumberMaps, group.alight.stationId, group.alight.stationName) ?? '-'}
+                </span>
+                <span>{group.alight.stationName}</span>
+              </span>
             </div>
           </div>
           <div />

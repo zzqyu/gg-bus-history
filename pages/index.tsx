@@ -1,5 +1,5 @@
 import Head from 'next/head'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   SearchResult,
   GroupTimetableState,
@@ -9,6 +9,7 @@ import {
   Group,
   KakaoPlace,
   TimetableEntry,
+  StationNumberMaps,
 } from '../types'
 import { getGroupKey, getGroupRouteBadges } from '../utils/routeUtils'
 import { getDateBounds, clampDateValue, getQuickDayValue, formatDisplayTime, formatDuration } from '../utils/timeUtils'
@@ -21,6 +22,7 @@ import DateSelector from '../components/DateSelector'
 import ResultsSection from '../components/ResultsSection'
 import SharePreviewModal from '../components/SharePreviewModal'
 import Image from 'next/image'
+import { buildStationNumberMaps, getAlightStationNumber, getBoardStationNumber } from '../utils/stationNumberUtils'
 
 // Dev StrictMode(초기 마운트 이중 실행)에서도 동일 쿼리의 중복 호출을 막기 위한
 // 브라우저 전역 in-flight/cache 저장소
@@ -83,6 +85,11 @@ export default function Home() {
   const routeBadgeRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const resultsSectionRef = useRef<HTMLDivElement>(null)
   const defaultMapCenter = { lon: 127.053749, lat: 37.289522 }
+
+  const stationNumberMaps: StationNumberMaps = useMemo(
+    () => buildStationNumberMaps((result && result.groups) || [], allGroupsSelectedRouteIds),
+    [result, allGroupsSelectedRouteIds]
+  )
 
   function buildAllGroupsTimetableQueryString(): string {
     const params = new URLSearchParams({ ax, ay, bx, by, aradius: startRadius, bradius: endRadius })
@@ -477,7 +484,7 @@ export default function Home() {
     if (!mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
     clearGroupStationOverlays()
     const list = groups || []
-    const posMap: Record<string, { position: any; label: string }> = {}
+    const posMap: Record<string, { position: any; labels: string[]; dedup: Set<string> }> = {}
     for (let idx = 0; idx < list.length; idx += 1) {
       const g = list[idx]
       const board = g && g.board ? g.board : null
@@ -497,18 +504,27 @@ export default function Home() {
           const marker = new kakao.maps.Marker({ position: pos, title: `${p.station.stationName || ''}` })
           marker.setMap(mapRef.current)
           groupStationMarkersRef.current.push(marker)
-          posMap[key] = { position: pos, label: '' }
+          posMap[key] = { position: pos, labels: [], dedup: new Set<string>() }
         }
         const bg = p.type === 'board' ? '#2563eb' : '#ef4444'
-        const txt = (p.station.stationName || '').trim() || `결과 ${idx + 1} ${p.type === 'board' ? '탑승' : '하차'}`
-        if (!posMap[key].label) {
-          posMap[key].label = `<div style="background:${bg};color:#fff;padding:1px 6px;border-radius:8px;font-size:11px;font-weight:700;white-space:nowrap;margin-bottom:1px;line-height:1.2;">${txt}</div>`
+        const stationId = String(p.station.stationId || '').trim()
+        const stationName = String(p.station.stationName || '').trim()
+        const stationNo = p.type === 'board'
+          ? getBoardStationNumber(stationNumberMaps, stationId, stationName)
+          : getAlightStationNumber(stationNumberMaps, stationId, stationName)
+        const prefix = p.type === 'board' ? 'A' : 'B'
+        const labelName = stationName || `결과 ${idx + 1} ${p.type === 'board' ? '탑승' : '하차'}`
+        const txt = stationNo != null ? `[${prefix}${stationNo}] ${labelName}` : labelName
+        const labelKey = `${prefix}|${stationId}|${labelName}|${stationNo || '-'}`
+        if (!posMap[key].dedup.has(labelKey)) {
+          posMap[key].dedup.add(labelKey)
+          posMap[key].labels.push(`<div style="background:${bg};color:#fff;padding:1px 6px;border-radius:8px;font-size:11px;font-weight:700;white-space:nowrap;margin-bottom:1px;line-height:1.2;">${txt}</div>`)
         }
       }
     }
     for (const key of Object.keys(posMap)) {
       const item = posMap[key]
-      const content = `<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-6px);">${item.label || ''}</div>`
+      const content = `<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-6px);">${item.labels.join('')}</div>`
       const overlay = new kakao.maps.CustomOverlay({ position: item.position, content, xAnchor: 0.5, yAnchor: 1.25 })
       overlay.setMap(mapRef.current)
       groupStationOverlaysRef.current.push(overlay)
@@ -812,6 +828,7 @@ export default function Home() {
     const j = await r.json()
     setShowAllGroupsTimetable(false)
     setShowGroupList(true)
+    setAllGroupsSelectedRouteIds([])
     setResult(j)
   }
 
@@ -1221,7 +1238,7 @@ export default function Home() {
     const selected = (result.groups || []).find((g) => getGroupKey(g) === expandedGroupKey)
     if (!selected) { renderGroupStationOverlays(result.groups || []); return }
     renderGroupStationOverlays([selected])
-  }, [result, expandedGroupKey])
+  }, [result, expandedGroupKey, stationNumberMaps])
 
   useEffect(() => {
     if (!mapRef.current) return
@@ -1602,6 +1619,7 @@ export default function Home() {
           <ResultsSection
             result={result}
             sday={sday}
+            stationNumberMaps={stationNumberMaps}
             groupTimetables={groupTimetables}
             allGroupsTimetable={allGroupsTimetable}
             showAllGroupsTimetable={showAllGroupsTimetable}
