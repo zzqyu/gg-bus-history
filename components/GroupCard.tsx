@@ -1,7 +1,7 @@
 import React from 'react'
 import { Group, GroupTimetableState, RealtimeArrivalItem, RouteBadgeInfo, StationNumberMaps, TimetableEntry } from '../types'
 import { getRouteNameStyle } from '../utils/styleUtils'
-import { formatDisplayTime, formatSecondsToMinuteText } from '../utils/timeUtils'
+import { formatDisplayTime, formatSecondsToMinuteText, getServiceDayNowMinutes } from '../utils/timeUtils'
 import { getAlightStationNumber, getBoardStationNumber } from '../utils/stationNumberUtils'
 import { buildRealtimeClockText, buildRealtimeKey, getBestTimelineMinutes, matchRealtimeToTimetableRows, parseRealtimeItemResponse, shouldEmphasizeRealtime } from '../utils/realtimeUtils'
 import GroupTimetable from './GroupTimetable'
@@ -110,7 +110,7 @@ export default function GroupCard({
   const showBusDurationSpinner = prefetchingBusDuration && !prefetchedBusDurationText
 
   const now = new Date()
-  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  const nowMinutes = getServiceDayNowMinutes(now)
   const earliestBoardMinutes = nowMinutes + walkStartMin
 
   const timelineCandidates = (sourceEntries || [])

@@ -1,7 +1,7 @@
 import React from 'react'
 import { Group, GroupTimetableState, RealtimeArrivalMap, RouteBadgeInfo, TimetableEntry } from '../types'
 import { getGroupRouteBadges } from '../utils/routeUtils'
-import { formatDisplayTime, formatDuration } from '../utils/timeUtils'
+import { formatDisplayTime, formatDuration, getServiceDayNowMinutes } from '../utils/timeUtils'
 import { getRouteNameStyle } from '../utils/styleUtils'
 import { buildRealtimeClockText, buildRealtimeKey, matchRealtimeToTimetableRows, parseRealtimeItemResponse } from '../utils/realtimeUtils'
 
@@ -42,7 +42,7 @@ export default function GroupTimetable({
   function isPastDisplayTime(text: string, now: Date = new Date()): boolean {
     const t = parseDisplayMinute(text)
     if (t == null) return false
-    const nowMin = now.getHours() * 60 + now.getMinutes()
+    const nowMin = getServiceDayNowMinutes(now)
     return t < nowMin
   }
 

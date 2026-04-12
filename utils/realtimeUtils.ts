@@ -1,5 +1,6 @@
 import { RealtimeArrivalItem, TimetableEntry } from '../types'
 import { formatDisplayTime } from './timeUtils'
+import { getServiceDayNowMinutes } from './timeUtils'
 
 export function buildRealtimeKey(stationId?: string, routeId?: string, staOrder?: number | string | null): string {
   const sid = String(stationId || '').trim()
@@ -41,14 +42,11 @@ export function buildRealtimeClockText(min: number | null | undefined, now: Date
   if (min == null || !Number.isFinite(Number(min))) return ''
   const rounded = Math.round(Number(min))
   if (rounded <= 0) return ''
-  const m = rounded
-  const eta = new Date(now.getTime() + (m * 60 * 1000))
-  const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const etaDay = new Date(eta.getFullYear(), eta.getMonth(), eta.getDate())
-  const dayOffset = Math.max(0, Math.floor((etaDay.getTime() - nowDay.getTime()) / 86400000))
-  const displayHour = eta.getHours() + (dayOffset * 24)
+  const nowMin = getServiceDayNowMinutes(now)
+  const etaMin = nowMin + rounded
+  const displayHour = Math.floor(etaMin / 60)
   const hh = String(displayHour).padStart(2, '0')
-  const mm = String(eta.getMinutes()).padStart(2, '0')
+  const mm = String(etaMin % 60).padStart(2, '0')
   return `${hh}:${mm}`
 }
 
@@ -60,7 +58,7 @@ function parseMinutesFromDisplay(text: string): number | null {
 
 export function getBestTimelineMinutes(entries: TimetableEntry[], sday: string, walkStartMin: number): number | null {
   const now = new Date()
-  const earliest = now.getHours() * 60 + now.getMinutes() + Math.max(0, Math.floor(walkStartMin || 0))
+  const earliest = getServiceDayNowMinutes(now) + Math.max(0, Math.floor(walkStartMin || 0))
   const candidate = (entries || [])
     .map((e) => {
       const t = formatDisplayTime(e.boardTime, sday)
@@ -78,7 +76,7 @@ export function getBestTimelineMinutes(entries: TimetableEntry[], sday: string, 
 export function shouldEmphasizeRealtime(bestTimelineMin: number | null, realtimeMin: number | null, thresholdMin = 7): boolean {
   if (bestTimelineMin == null || realtimeMin == null) return false
   const now = new Date()
-  const nowMin = now.getHours() * 60 + now.getMinutes()
+  const nowMin = getServiceDayNowMinutes(now)
   const realtimeAbs = nowMin + realtimeMin
   return Math.abs(realtimeAbs - bestTimelineMin) >= thresholdMin
 }
@@ -97,7 +95,7 @@ export function matchRealtimeToTimetableRows(
   const times = boardTimes.map((t) => toMinute(t))
   const usedRows = new Set<number>()
   const result: Array<number | null> = Array.from({ length: boardTimes.length }).map(() => null)
-  const nowMin = now.getHours() * 60 + now.getMinutes()
+  const nowMin = getServiceDayNowMinutes(now)
   const arrivals = (realtimeMins || [])
     .map((m) => Math.round(Number(m)))
     .filter((m) => Number.isFinite(m) && m > 0)

@@ -12,7 +12,7 @@ import {
   StationNumberMaps,
 } from '../types'
 import { getGroupKey, getGroupRouteBadges } from '../utils/routeUtils'
-import { getDateBounds, clampDateValue, getQuickDayValue, formatDisplayTime, formatDuration } from '../utils/timeUtils'
+import { getDateBounds, clampDateValue, getQuickDayValue, formatDisplayTime, formatDuration, getServiceDayNowMinutes } from '../utils/timeUtils'
 import { toCoordString, parseCoordValue, getPlaceDisplayText } from '../utils/mapUtils'
 import PlaceSearchInput from '../components/PlaceSearchInput'
 import SearchResultsPanel from '../components/SearchResultsPanel'
@@ -431,7 +431,7 @@ export default function Home() {
     if (!entries.length) return String(g.routes?.[0]?.routeId || '') || null
 
     const now = new Date()
-    const nowMinutes = now.getHours() * 60 + now.getMinutes()
+    const nowMinutes = getServiceDayNowMinutes(now)
     const walkToBoardMinutes = Math.ceil((Number(entries[0]?.walkToBoardSec || 0) || 0) / 60)
     const earliestBoardMinutes = nowMinutes + walkToBoardMinutes
 
@@ -947,7 +947,7 @@ export default function Home() {
   function getNextBoardRowIndex(entries: TimetableEntry[]): number {
     if (!entries || entries.length === 0) return -1
     const now = new Date()
-    const nowMinutes = now.getHours() * 60 + now.getMinutes()
+    const nowMinutes = getServiceDayNowMinutes(now)
     for (let i = 0; i < entries.length; i += 1) {
       const mins = getDisplayMinutes(entries[i] && entries[i].boardTime)
       if (mins != null && mins >= nowMinutes) return i
@@ -1160,7 +1160,7 @@ export default function Home() {
     }
 
     const now = new Date()
-    const nowMinutes = now.getHours() * 60 + now.getMinutes()
+    const nowMinutes = getServiceDayNowMinutes(now)
     const withMinutes = entries.map((e) => ({ e, mins: getDisplayMinutes(e.boardTime) }))
     const upcoming = withMinutes.filter((x) => x.mins != null && x.mins >= nowMinutes).sort((a, b) => (a.mins! - b.mins!)).map((x) => x.e)
     const fallbackSorted = withMinutes.filter((x) => x.mins != null).sort((a, b) => (a.mins! - b.mins!)).map((x) => x.e)

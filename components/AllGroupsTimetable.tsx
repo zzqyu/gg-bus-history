@@ -1,7 +1,7 @@
 import React from 'react'
 import { AllGroupsTimetableState, RealtimeArrivalMap, StationNumberMaps, TimetableEntry } from '../types'
 import { compareRoutes } from '../utils/routeUtils'
-import { formatDisplayTime, formatDuration, formatSecondsToMinuteText } from '../utils/timeUtils'
+import { formatDisplayTime, formatDuration, formatSecondsToMinuteText, getServiceDayNowMinutes } from '../utils/timeUtils'
 import { getRouteNameStyle } from '../utils/styleUtils'
 import { getAlightStationNumber, getBoardStationNumber } from '../utils/stationNumberUtils'
 import { buildRealtimeClockText, buildRealtimeKey, matchRealtimeToTimetableRows, parseRealtimeItemResponse } from '../utils/realtimeUtils'
@@ -41,7 +41,7 @@ export default function AllGroupsTimetable({
   function isPastDisplayTime(text: string, now: Date = new Date()): boolean {
     const t = parseDisplayMinute(text)
     if (t == null) return false
-    const nowMin = now.getHours() * 60 + now.getMinutes()
+    const nowMin = getServiceDayNowMinutes(now)
     return t < nowMin
   }
 

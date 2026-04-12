@@ -8,7 +8,7 @@ import {
   StationNumberMaps,
 } from '../types'
 import { getGroupKey, getGroupRouteBadges } from '../utils/routeUtils'
-import { formatDisplayTime } from '../utils/timeUtils'
+import { formatDisplayTime, getServiceDayNowMinutes } from '../utils/timeUtils'
 import AllGroupsTimetable from './AllGroupsTimetable'
 import GroupCard from './GroupCard'
 
@@ -154,7 +154,7 @@ export default function ResultsSection({
     const walkStartMin = Math.max(0, Math.round(Number(g.walk?.startToBoard?.timeSec || 0) / 60))
     const walkEndMin = Math.max(0, Math.round(Number(g.walk?.alightToEnd?.timeSec || 0) / 60))
     const now = new Date()
-    const earliestBoard = now.getHours() * 60 + now.getMinutes() + walkStartMin
+    const earliestBoard = getServiceDayNowMinutes(now) + walkStartMin
 
     const candidates = sourceEntries
       .map((entry) => {
