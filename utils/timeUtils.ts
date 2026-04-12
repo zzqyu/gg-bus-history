@@ -7,12 +7,26 @@ export function formatDateInput(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
+export const SERVICE_DAY_CUTOFF_MINUTES = 3 * 60 + 30
+
+export function getServiceDayNowMinutes(now: Date = new Date(), cutoffMinutes: number = SERVICE_DAY_CUTOFF_MINUTES): number {
+  const cur = now.getHours() * 60 + now.getMinutes()
+  return cur < cutoffMinutes ? cur + 1440 : cur
+}
+
+export function getServiceDayBaseDate(now: Date = new Date(), cutoffMinutes: number = SERVICE_DAY_CUTOFF_MINUTES): Date {
+  const base = new Date(now)
+  base.setHours(0, 0, 0, 0)
+  const cur = now.getHours() * 60 + now.getMinutes()
+  if (cur < cutoffMinutes) base.setDate(base.getDate() - 1)
+  return base
+}
+
 export function getDateBounds(): DateBounds {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const maxDate = new Date(today)
+  const base = getServiceDayBaseDate()
+  const maxDate = new Date(base)
   maxDate.setDate(maxDate.getDate() - 1)
-  const minDate = new Date(today)
+  const minDate = new Date(base)
   minDate.setDate(minDate.getDate() - 15)
   return {
     min: formatDateInput(minDate),
@@ -28,8 +42,7 @@ export function clampDateValue(v: string, min: string, max: string): string {
 }
 
 export function getQuickDayValue(daysAgo: number, bounds: DateBounds): string {
-  const d = new Date()
-  d.setHours(0, 0, 0, 0)
+  const d = getServiceDayBaseDate()
   d.setDate(d.getDate() - daysAgo)
   return clampDateValue(formatDateInput(d), bounds.min, bounds.max)
 }

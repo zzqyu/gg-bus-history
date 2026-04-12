@@ -1,8 +1,11 @@
 import React from 'react'
-import { Group, GroupTimetableState, RouteBadgeInfo, TimetableEntry } from '../types'
+import { Group, GroupTimetableState, RealtimeArrivalItem, RouteBadgeInfo, StationNumberMaps, TimetableEntry } from '../types'
 import { getRouteNameStyle } from '../utils/styleUtils'
-import { formatDisplayTime, formatSecondsToMinuteText } from '../utils/timeUtils'
+import { formatDisplayTime, formatSecondsToMinuteText, getServiceDayNowMinutes } from '../utils/timeUtils'
+import { getAlightStationNumber, getBoardStationNumber } from '../utils/stationNumberUtils'
+import { buildRealtimeClockText, buildRealtimeKey, getBestTimelineMinutes, matchRealtimeToTimetableRows, parseRealtimeItemResponse, shouldEmphasizeRealtime } from '../utils/realtimeUtils'
 import GroupTimetable from './GroupTimetable'
+import RealtimeArrivalPanel from './RealtimeArrivalPanel'
 
 interface GroupCardProps {
   groupKey: string
@@ -18,6 +21,7 @@ interface GroupCardProps {
   prefetchedCombined: TimetableEntry[]
   highlightedRowIndex: number
   visibleRouteBadges: RouteBadgeInfo[]
+  stationNumberMaps: StationNumberMaps
   tableScrollRef: (el: HTMLDivElement | null) => void
   badgeRowRef: (el: HTMLDivElement | null) => void
   onCardClick: (e: React.MouseEvent) => void
@@ -43,6 +47,7 @@ export default function GroupCard({
   prefetchedCombined,
   highlightedRowIndex,
   visibleRouteBadges,
+  stationNumberMaps,
   tableScrollRef,
   badgeRowRef,
   onCardClick,
@@ -105,7 +110,7 @@ export default function GroupCard({
   const showBusDurationSpinner = prefetchingBusDuration && !prefetchedBusDurationText
 
   const now = new Date()
-  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  const nowMinutes = getServiceDayNowMinutes(now)
   const earliestBoardMinutes = nowMinutes + walkStartMin
 
   const timelineCandidates = (sourceEntries || [])
@@ -152,6 +157,91 @@ export default function GroupCard({
       <circle cx="15" cy="18.5" r="1" fill="currentColor" />
     </svg>
   )
+
+  const [realtime, setRealtime] = React.useState<RealtimeArrivalItem | null>(null)
+  const [realtimeLoading, setRealtimeLoading] = React.useState(false)
+  const [realtimeError, setRealtimeError] = React.useState('')
+  const [arrivalPanelOpen, setArrivalPanelOpen] = React.useState(false)
+  const [arrivalPanelStationType, setArrivalPanelStationType] = React.useState<'board' | 'alight'>('board')
+
+  const bestRouteInfo = (group.routes || []).find((r) => String(r.routeId || '') === String(bestRouteId || ''))
+
+  React.useEffect(() => {
+    let canceled = false
+    async function run() {
+      if (!bestRouteId || !group.board?.stationId || bestRouteInfo?.boardOrder == null) {
+        setRealtime(null)
+        setRealtimeError('')
+        return
+      }
+      setRealtimeLoading(true)
+      setRealtimeError('')
+      try {
+        const params = new URLSearchParams({
+          stationId: String(group.board.stationId),
+          routeId: String(bestRouteId),
+          staOrder: String(bestRouteInfo.boardOrder),
+        })
+        const r = await fetch('/api/realtimeArrivalItem?' + params.toString())
+        const j = await r.json()
+        const parsed = parseRealtimeItemResponse(j)
+        if (!canceled) setRealtime(parsed)
+      } catch (e) {
+        if (!canceled) {
+          setRealtime(null)
+          setRealtimeError(String(e))
+        }
+      } finally {
+        if (!canceled) setRealtimeLoading(false)
+      }
+    }
+    run()
+    return () => { canceled = true }
+  }, [bestRouteId, group.board?.stationId, bestRouteInfo?.boardOrder])
+
+  const bestTimelineMin = getBestTimelineMinutes(sourceEntries, sday, walkStartMin)
+  const realtimeMin = React.useMemo(() => {
+    if (!bestTimeline || !bestRouteId || !group.board?.stationId || bestRouteInfo?.boardOrder == null) return null
+    const predict = Array.isArray(realtime?.predictTimes) ? realtime.predictTimes : []
+    if (!predict.length) return null
+
+    const key = buildRealtimeKey(String(group.board.stationId), String(bestRouteId), bestRouteInfo.boardOrder)
+    const rows = (sourceEntries || [])
+      .map((entry, idx) => ({
+        idx,
+        key: buildRealtimeKey(entry.boardStationId || String(group.board.stationId), entry.routeId, entry.boardOrder),
+        boardText: formatDisplayTime(entry.boardTime, sday),
+      }))
+      .filter((r) => r.key === key)
+
+    if (!rows.length) return null
+
+    const mapped = matchRealtimeToTimetableRows(rows.map((r) => r.boardText), predict)
+    let rowPos = -1
+
+    // 1) 가장 안정적인 기준: sourceEntries 내 원본 인덱스 일치
+    const bestIdxInSource = (sourceEntries || []).findIndex((entry) => entry === bestTimeline.entry)
+    if (bestIdxInSource >= 0) {
+      rowPos = rows.findIndex((r) => r.idx === bestIdxInSource)
+    }
+
+    // 2) 폴백: 동일 보드표시시각 문자열 매칭
+    if (rowPos < 0) {
+      const targetBoardText = bestTimeline.boardText
+      rowPos = rows.findIndex((r) => r.boardText === targetBoardText)
+    }
+
+    // 3) 마지막 폴백: 같은 key 내 첫 행(순차 매핑의 첫 대상)
+    if (rowPos < 0) {
+      rowPos = 0
+    }
+
+    return mapped[rowPos] ?? null
+  }, [bestTimeline, bestRouteId, bestRouteInfo?.boardOrder, group.board?.stationId, realtime?.predictTimes, sday, sourceEntries])
+  const realtimeClockText = buildRealtimeClockText(realtimeMin)
+  const nextRealtimeClockText = buildRealtimeClockText(realtime?.predictTime1 ?? null)
+  const showRealtimeMappingFallback = !realtimeLoading && !realtimeClockText && !!nextRealtimeClockText
+  const emphasizeRealtime = shouldEmphasizeRealtime(bestTimelineMin, realtimeMin, 7)
 
   return (
     <div
@@ -207,13 +297,23 @@ export default function GroupCard({
           <div />
           <div className="relative h-4">
             <div className="absolute left-1/2 top-0 w-max max-w-[140px] -translate-x-1/2 truncate text-center text-slate-700" title={group.board.stationName}>
-              {group.board.stationName}
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold text-white">
+                  A{getBoardStationNumber(stationNumberMaps, group.board.stationId, group.board.stationName) ?? '-'}
+                </span>
+                <span>{group.board.stationName}</span>
+              </span>
             </div>
           </div>
           <div />
           <div className="relative h-4">
             <div className="absolute left-1/2 top-0 w-max max-w-[140px] -translate-x-1/2 truncate text-center text-slate-700" title={group.alight.stationName}>
-              {group.alight.stationName}
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-600 px-1 text-[10px] font-bold text-white">
+                  B{getAlightStationNumber(stationNumberMaps, group.alight.stationId, group.alight.stationName) ?? '-'}
+                </span>
+                <span>{group.alight.stationName}</span>
+              </span>
             </div>
           </div>
           <div />
@@ -285,7 +385,38 @@ export default function GroupCard({
         <div className="-mt-0.1 grid grid-cols-[auto_minmax(0,0.7fr)_auto_minmax(0,2.2fr)_auto_minmax(0,0.7fr)_auto] items-start text-[11px] text-slate-700">
           <div className="text-center">{departText}</div>
           <div />
-          <div className="text-center">{boardText}</div>
+          <div className="text-center">
+            <span className="inline-flex items-center gap-1">
+              <span>{boardText}</span>
+              {realtimeLoading ? (
+                <span
+                  className="rounded px-1 py-0.5 text-[10px] font-semibold"
+                  style={{ background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe' }}
+                  title="실시간 도착 조회 중"
+                >
+                  ...
+                </span>
+              ) : (realtimeClockText ? (
+                <span
+                  className="rounded px-1 py-0.5 text-[10px] font-semibold"
+                  style={emphasizeRealtime
+                    ? { background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }
+                    : { background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe' }}
+                  title={realtimeError || '실시간 도착 시각'}
+                >
+                  {realtimeClockText}
+                </span>
+              ) : (showRealtimeMappingFallback ? (
+                <span
+                  className="rounded px-1 py-0.5 text-[10px] font-semibold"
+                  style={{ background: '#fff7ed', color: '#9a3412', border: '1px solid #fdba74' }}
+                  title="시간이력 행에 실시간 매핑이 없어 다음 실시간을 참고값으로 표시"
+                >
+                  {`매핑불가(다음 실시간 ${nextRealtimeClockText})`}
+                </span>
+              ) : null))}
+            </span>
+          </div>
           <div />
           <div className="text-center">{alightText}</div>
           <div />
@@ -313,7 +444,41 @@ export default function GroupCard({
               })()
             ))}
           </div>
+          <div className="mt-1 flex flex-wrap items-center justify-center gap-1 text-[10px]">
+            <span className="text-slate-500">추천은 과거 이력 기준 · 실시간은 시간이력 매핑 기준</span>
+          </div>
+          <div className="mt-1 flex items-center justify-center gap-1">
+            <button
+              type="button"
+              className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[10px] hover:bg-slate-50"
+              onClick={(ev) => {
+                ev.stopPropagation()
+                setArrivalPanelStationType('board')
+                setArrivalPanelOpen(true)
+              }}
+            >
+              탑승정류장 실시간
+            </button>
+            <button
+              type="button"
+              className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[10px] hover:bg-slate-50"
+              onClick={(ev) => {
+                ev.stopPropagation()
+                setArrivalPanelStationType('alight')
+                setArrivalPanelOpen(true)
+              }}
+            >
+              하차정류장 실시간
+            </button>
+          </div>
         </div>
+
+        <RealtimeArrivalPanel
+          group={group}
+          stationType={arrivalPanelStationType}
+          open={arrivalPanelOpen}
+          onClose={() => setArrivalPanelOpen(false)}
+        />
       </div>
 
       {/* Expanded section */}

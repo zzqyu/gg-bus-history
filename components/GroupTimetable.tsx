@@ -1,8 +1,9 @@
 import React from 'react'
-import { Group, GroupTimetableState, RouteBadgeInfo, TimetableEntry } from '../types'
+import { Group, GroupTimetableState, RealtimeArrivalMap, RouteBadgeInfo, TimetableEntry } from '../types'
 import { getGroupRouteBadges } from '../utils/routeUtils'
-import { formatDisplayTime, formatDuration } from '../utils/timeUtils'
+import { formatDisplayTime, formatDuration, getServiceDayNowMinutes } from '../utils/timeUtils'
 import { getRouteNameStyle } from '../utils/styleUtils'
+import { buildRealtimeClockText, buildRealtimeKey, matchRealtimeToTimetableRows, parseRealtimeItemResponse } from '../utils/realtimeUtils'
 
 interface GroupTimetableProps {
   group: Group
@@ -29,6 +30,82 @@ export default function GroupTimetable({
   onMoveToCurrentTime,
   onFold,
 }: GroupTimetableProps) {
+  function parseDisplayMinute(text: string): number | null {
+    const m = String(text || '').match(/^(\d+):(\d{2})$/)
+    if (!m) return null
+    const hh = Number(m[1])
+    const mm = Number(m[2])
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null
+    return hh * 60 + mm
+  }
+
+  function isPastDisplayTime(text: string, now: Date = new Date()): boolean {
+    const t = parseDisplayMinute(text)
+    if (t == null) return false
+    const nowMin = getServiceDayNowMinutes(now)
+    return t < nowMin
+  }
+
+  const [realtimeMap, setRealtimeMap] = React.useState<RealtimeArrivalMap>({})
+  const realtimeFetchKeys = React.useMemo(() => {
+    const list = combined || []
+    return Array.from(new Set(list.map((e) => buildRealtimeKey(e.boardStationId || group.board.stationId, e.routeId, e.boardOrder))))
+      .filter((k) => {
+        const [sid, rid, ord] = String(k).split('|')
+        return !!sid && !!rid && !!ord
+      })
+      .slice(0, 80)
+      .sort()
+  }, [combined, group.board.stationId])
+
+  const routeBadges: RouteBadgeInfo[] = getGroupRouteBadges(group)
+
+  React.useEffect(() => {
+    let canceled = false
+    async function fetchRealtime() {
+      if (!realtimeFetchKeys.length) {
+        setRealtimeMap({})
+        return
+      }
+      const next: RealtimeArrivalMap = {}
+      await Promise.all(realtimeFetchKeys.map(async (key) => {
+        try {
+          const [stationId, routeId, staOrder] = String(key).split('|')
+          const params = new URLSearchParams({ stationId, routeId, staOrder })
+          const r = await fetch('/api/realtimeArrivalItem?' + params.toString())
+          const j = await r.json()
+          const parsed = parseRealtimeItemResponse(j)
+          if (parsed) next[key] = parsed
+        } catch {
+          // ignore
+        }
+      }))
+      if (!canceled) setRealtimeMap(next)
+    }
+    fetchRealtime()
+    return () => { canceled = true }
+  }, [realtimeFetchKeys])
+
+  const realtimeByRowIndex = React.useMemo(() => {
+    const out: Record<number, number | null> = {}
+    const grouped: Record<string, Array<{ idx: number; boardText: string }>> = {}
+    for (let i = 0; i < (combined || []).length; i += 1) {
+      const e = combined[i]
+      const key = buildRealtimeKey(e.boardStationId || group.board.stationId, e.routeId, e.boardOrder)
+      if (!grouped[key]) grouped[key] = []
+      grouped[key].push({ idx: i, boardText: formatDisplayTime(e.boardTime, sday) })
+    }
+    for (const key of Object.keys(grouped)) {
+      const rows = grouped[key]
+      const predict = Array.isArray(realtimeMap[key]?.predictTimes) ? realtimeMap[key].predictTimes : []
+      const mapped = matchRealtimeToTimetableRows(rows.map((x) => x.boardText), predict)
+      for (let i = 0; i < rows.length; i += 1) {
+        out[rows[i].idx] = mapped[i]
+      }
+    }
+    return out
+  }, [combined, realtimeMap, sday, group.board.stationId])
+
   if (state.loading) {
     return (
       <div className="mt-2.5 rounded border border-amber-200 bg-amber-50 p-2.5">
@@ -44,8 +121,6 @@ export default function GroupTimetable({
       </div>
     )
   }
-
-  const routeBadges: RouteBadgeInfo[] = getGroupRouteBadges(group)
 
   return (
     <div className="mt-2.5 rounded border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-2.5">
@@ -156,7 +231,34 @@ export default function GroupTimetable({
                     </span>
                   </td>
                   <td className="border-b border-gray-300 px-1 py-1.5 text-xs whitespace-nowrap">
-                    {formatDisplayTime(e.boardTime, sday)}
+                    <span className="inline-flex items-center gap-1">
+                      <span>{formatDisplayTime(e.boardTime, sday)}</span>
+                      {(() => {
+                        const boardText = formatDisplayTime(e.boardTime, sday)
+                        const clockText = buildRealtimeClockText(realtimeByRowIndex[cIdx])
+                        if (clockText) {
+                          return (
+                            <span
+                              className="rounded px-1 py-0.5 text-[10px] font-semibold"
+                              style={{ background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe' }}
+                              title="실시간 도착 시각"
+                            >
+                            {clockText}
+                          </span>
+                        )
+                      }
+                        if (!isPastDisplayTime(boardText)) return null
+                        return (
+                          <span
+                            className="rounded px-1 py-0.5 text-[10px] font-semibold"
+                            style={{ background: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db' }}
+                            title="이미 지난 시간이력"
+                          >
+                            지나감
+                          </span>
+                        )
+                      })()}
+                    </span>
                   </td>
                   <td className="border-b border-gray-300 px-1 py-1.5 text-xs whitespace-nowrap">
                     <span>{formatDisplayTime(e.alightTime, sday)}</span>

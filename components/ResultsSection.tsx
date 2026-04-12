@@ -5,9 +5,10 @@ import {
   GroupTimetableState,
   AllGroupsTimetableState,
   TimetableEntry,
+  StationNumberMaps,
 } from '../types'
 import { getGroupKey, getGroupRouteBadges } from '../utils/routeUtils'
-import { formatDisplayTime } from '../utils/timeUtils'
+import { formatDisplayTime, getServiceDayNowMinutes } from '../utils/timeUtils'
 import AllGroupsTimetable from './AllGroupsTimetable'
 import GroupCard from './GroupCard'
 
@@ -26,6 +27,7 @@ interface ResultsSectionProps {
   allGroupsTableScrollRef: React.RefObject<HTMLDivElement>
   groupTableScrollRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>
   routeBadgeRowRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>
+  stationNumberMaps: StationNumberMaps
   onShare: () => void
   onFetchAllGroupsTimetable: () => void
   onSelectAllGroupsRoutes: (routeIds: string[]) => void
@@ -56,6 +58,7 @@ export default function ResultsSection({
   allGroupsTableScrollRef,
   groupTableScrollRefs,
   routeBadgeRowRefs,
+  stationNumberMaps,
   onShare,
   onFetchAllGroupsTimetable,
   onSelectAllGroupsRoutes,
@@ -151,7 +154,7 @@ export default function ResultsSection({
     const walkStartMin = Math.max(0, Math.round(Number(g.walk?.startToBoard?.timeSec || 0) / 60))
     const walkEndMin = Math.max(0, Math.round(Number(g.walk?.alightToEnd?.timeSec || 0) / 60))
     const now = new Date()
-    const earliestBoard = now.getHours() * 60 + now.getMinutes() + walkStartMin
+    const earliestBoard = getServiceDayNowMinutes(now) + walkStartMin
 
     const candidates = sourceEntries
       .map((entry) => {
@@ -274,6 +277,7 @@ export default function ResultsSection({
         <AllGroupsTimetable
           state={allGroupsTimetable}
           sday={sday}
+          stationNumberMaps={stationNumberMaps}
           highlightedRowIndex={allGroupsHighlightedRowIndex}
           selectedRouteIds={allGroupsSelectedRouteIds}
           tableScrollRef={allGroupsTableScrollRef}
@@ -336,6 +340,7 @@ export default function ResultsSection({
               visibleRouteBadges={badges}
               prefetchingBusDuration={isPrefetchingBusDuration}
               prefetchedBusDurationText={getPrefetchedBusDurationText(g)}
+              stationNumberMaps={stationNumberMaps}
               tableScrollRef={(el) => {
                 groupTableScrollRefs.current[groupKey] = el
               }}
