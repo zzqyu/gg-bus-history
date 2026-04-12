@@ -10,6 +10,9 @@ export interface RouteInfo {
   routeId: string
   routeName: string
   routeTypeCd?: string
+  boardOrder?: number
+  alightOrder?: number
+  orderGap?: number
 }
 
 export interface Group {
@@ -125,3 +128,15 @@ export interface StationNumberMaps {
   alightByStationId: Record<string, number>
   alightByStationName: Record<string, number>
 }
+
+export interface RealtimeArrivalItem {
+  stationId: string
+  routeId: string
+  staOrder: number | null
+  routeName?: string
+  predictTime1?: number | null
+  predictTime2?: number | null
+  predictTimes: number[]
+}
+
+export type RealtimeArrivalMap = Record<string, RealtimeArrivalItem>

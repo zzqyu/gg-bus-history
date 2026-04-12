@@ -1,9 +1,10 @@
 import React from 'react'
-import { AllGroupsTimetableState, StationNumberMaps, TimetableEntry } from '../types'
+import { AllGroupsTimetableState, RealtimeArrivalMap, StationNumberMaps, TimetableEntry } from '../types'
 import { compareRoutes } from '../utils/routeUtils'
 import { formatDisplayTime, formatDuration, formatSecondsToMinuteText } from '../utils/timeUtils'
 import { getRouteNameStyle } from '../utils/styleUtils'
 import { getAlightStationNumber, getBoardStationNumber } from '../utils/stationNumberUtils'
+import { buildRealtimeClockText, buildRealtimeKey, matchRealtimeToTimetableRows, parseRealtimeItemResponse } from '../utils/realtimeUtils'
 
 interface AllGroupsTimetableProps {
   state: AllGroupsTimetableState
@@ -28,31 +29,42 @@ export default function AllGroupsTimetable({
   onMoveToCurrentTime,
   onFold,
 }: AllGroupsTimetableProps) {
+  function parseDisplayMinute(text: string): number | null {
+    const m = String(text || '').match(/^(\d+):(\d{2})$/)
+    if (!m) return null
+    const hh = Number(m[1])
+    const mm = Number(m[2])
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null
+    return hh * 60 + mm
+  }
+
+  function isPastDisplayTime(text: string, now: Date = new Date()): boolean {
+    const t = parseDisplayMinute(text)
+    if (t == null) return false
+    const nowMin = now.getHours() * 60 + now.getMinutes()
+    return t < nowMin
+  }
+
   const [recentlyMovedToNow, setRecentlyMovedToNow] = React.useState(false)
   const stickyHeaderRef = React.useRef<HTMLDivElement | null>(null)
   const [tableHeaderTop, setTableHeaderTop] = React.useState(0)
-
-  if (state.loading) {
-    return (
-      <div className="mb-3.5 rounded-lg border border-blue-200 bg-blue-50 p-2.5">
-        <div>전체 결과 시간이력 조회 중...</div>
-      </div>
-    )
-  }
-
-  if (state.error) {
-    return (
-      <div className="mb-3.5 rounded-lg border border-blue-200 bg-blue-50 p-2.5">
-        <div className="text-red-600">{state.error}</div>
-      </div>
-    )
-  }
+  const [realtimeMap, setRealtimeMap] = React.useState<RealtimeArrivalMap>({})
 
   const combined: TimetableEntry[] = (state.data && state.data.combined) || []
   const selectedRouteSet = new Set((selectedRouteIds || []).map((x) => String(x)))
   const filtered = selectedRouteSet.size > 0
     ? combined.filter((x) => selectedRouteSet.has(String(x.routeId || '')))
     : combined
+
+  const realtimeFetchKeys = React.useMemo(() => {
+    return Array.from(new Set(filtered.map((e) => buildRealtimeKey(e.boardStationId, e.routeId, e.boardOrder))))
+      .filter((k) => {
+        const [sid, rid, ord] = String(k).split('|')
+        return !!sid && !!rid && !!ord
+      })
+      .slice(0, 120)
+      .sort()
+  }, [filtered])
 
   const routeMap = new Map<string, TimetableEntry>()
   for (const e of combined) {
@@ -146,6 +158,52 @@ export default function AllGroupsTimetable({
 
   const hasStationLegend = boardStationLegendArr.length > 0 || alightStationLegendArr.length > 0
 
+  React.useEffect(() => {
+    let canceled = false
+    async function fetchRealtime() {
+      if (!realtimeFetchKeys.length) {
+        setRealtimeMap({})
+        return
+      }
+      const next: RealtimeArrivalMap = {}
+      await Promise.all(realtimeFetchKeys.map(async (k) => {
+        try {
+          const [stationId, routeId, staOrder] = String(k).split('|')
+          const params = new URLSearchParams({ stationId, routeId, staOrder })
+          const r = await fetch('/api/realtimeArrivalItem?' + params.toString())
+          const j = await r.json()
+          const parsed = parseRealtimeItemResponse(j)
+          if (parsed) next[k] = parsed
+        } catch {
+          // ignore per key
+        }
+      }))
+      if (!canceled) setRealtimeMap(next)
+    }
+    fetchRealtime()
+    return () => { canceled = true }
+  }, [realtimeFetchKeys])
+
+  const realtimeByRowIndex = React.useMemo(() => {
+    const out: Record<number, number | null> = {}
+    const grouped: Record<string, Array<{ idx: number; boardText: string }>> = {}
+    for (let i = 0; i < filtered.length; i += 1) {
+      const e = filtered[i]
+      const key = buildRealtimeKey(e.boardStationId, e.routeId, e.boardOrder)
+      if (!grouped[key]) grouped[key] = []
+      grouped[key].push({ idx: i, boardText: formatDisplayTime(e.boardTime, sday) })
+    }
+    for (const key of Object.keys(grouped)) {
+      const arr = grouped[key]
+      const predict = Array.isArray(realtimeMap[key]?.predictTimes) ? realtimeMap[key].predictTimes : []
+      const mapped = matchRealtimeToTimetableRows(arr.map((x) => x.boardText), predict)
+      for (let i = 0; i < arr.length; i += 1) {
+        out[arr[i].idx] = mapped[i]
+      }
+    }
+    return out
+  }, [filtered, realtimeMap, sday])
+
   function formatWalkLegendText(secList: number[]): string {
     if (!secList || secList.length === 0) return '-'
     const min = Math.min(...secList)
@@ -207,6 +265,22 @@ export default function AllGroupsTimetable({
       if (ro) ro.disconnect()
     }
   }, [hasStationLegend, displayedRouteArr.length, filtered.length])
+
+  if (state.loading) {
+    return (
+      <div className="mb-3.5 rounded-lg border border-blue-200 bg-blue-50 p-2.5">
+        <div>전체 결과 시간이력 조회 중...</div>
+      </div>
+    )
+  }
+
+  if (state.error) {
+    return (
+      <div className="mb-3.5 rounded-lg border border-blue-200 bg-blue-50 p-2.5">
+        <div className="text-red-600">{state.error}</div>
+      </div>
+    )
+  }
 
   return (
     <div className="mb-3.5 rounded-lg border border-blue-200 bg-blue-50 p-2.5">
@@ -374,12 +448,37 @@ export default function AllGroupsTimetable({
                   {(() => {
                     const boardName = String(e.boardStationName || '').trim()
                     const boardNo = getBoardStationNumber(stationNumberMaps, String(e.boardStationId || ''), boardName)
+                    const boardText = formatDisplayTime(e.boardTime, sday)
                     return (
                       <span className="inline-flex items-center gap-1" title={boardName || '-'}>
                         <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold text-white">
                           {boardNo || '-'}
                         </span>
-                        <span>{formatDisplayTime(e.boardTime, sday)}</span>
+                        <span>{boardText}</span>
+                        {(() => {
+                          const clockText = buildRealtimeClockText(realtimeByRowIndex[idx])
+                          if (clockText) {
+                            return (
+                              <span
+                                className="rounded px-1 py-0.5 text-[10px] font-semibold"
+                                style={{ background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe' }}
+                                title="실시간 도착 시각"
+                              >
+                              {clockText}
+                            </span>
+                          )
+                        }
+                          if (!isPastDisplayTime(boardText)) return null
+                          return (
+                            <span
+                              className="rounded px-1 py-0.5 text-[10px] font-semibold"
+                              style={{ background: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db' }}
+                              title="이미 지난 시간이력"
+                            >
+                              지나감
+                            </span>
+                          )
+                        })()}
                       </span>
                     )
                   })()}

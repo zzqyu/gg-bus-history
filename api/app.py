@@ -8,6 +8,7 @@ import requests
 from requests.exceptions import RequestException
 import logging
 import time
+import os
 from urllib.parse import quote
 
 app = FastAPI()
@@ -17,6 +18,10 @@ from threading import Lock
 CACHE = {}
 CACHE_LOCK = Lock()
 CACHE_TTL = 300  # seconds
+
+REALTIME_CACHE = {}
+REALTIME_CACHE_LOCK = Lock()
+REALTIME_CACHE_TTL_SEC = 12
 
 def cache_get(key):
     with CACHE_LOCK:
@@ -32,6 +37,23 @@ def cache_get(key):
 def cache_set(key, val):
     with CACHE_LOCK:
         CACHE[key] = (time.time(), val)
+
+
+def realtime_cache_get(key):
+    with REALTIME_CACHE_LOCK:
+        ent = REALTIME_CACHE.get(key)
+        if not ent:
+            return None
+        ts, val = ent
+        if time.time() - ts > REALTIME_CACHE_TTL_SEC:
+            del REALTIME_CACHE[key]
+            return None
+        return val
+
+
+def realtime_cache_set(key, val):
+    with REALTIME_CACHE_LOCK:
+        REALTIME_CACHE[key] = (time.time(), val)
 
 # configure simple logging
 logging.basicConfig(level=logging.INFO)
@@ -242,6 +264,175 @@ def fetch_past_arrivals(routeId, stationId, staOrder, sday_norm):
     # cache empty result to avoid hammering failing external API
     cache_set(cache_key, [])
     return []
+
+
+def _load_baseinfo_service_key() -> str:
+    key = (os.environ.get('BASEINFO_SERVICE_KEY') or '').strip()
+    if not key:
+        env_local = Path('.env.local')
+        if env_local.exists():
+            try:
+                for line in env_local.read_text(encoding='utf-8').splitlines():
+                    s = str(line).strip()
+                    if not s or s.startswith('#') or '=' not in s:
+                        continue
+                    k, v = s.split('=', 1)
+                    if str(k).strip() == 'BASEINFO_SERVICE_KEY':
+                        key = str(v).strip().strip('"').strip("'")
+                        break
+            except Exception:
+                key = ''
+    if not key:
+        raise HTTPException(status_code=500, detail='BASEINFO_SERVICE_KEY is not configured')
+    return key
+
+
+def _extract_msg_body(doc):
+    if not isinstance(doc, dict):
+        return {}
+    return (((doc.get('response') or {}).get('msgBody') or {}))
+
+
+def _to_int(v):
+    try:
+        if v is None:
+            return None
+        return int(str(v).strip())
+    except Exception:
+        return None
+
+
+def _normalize_arrival_row(row):
+    route_id = str(row.get('routeId') or row.get('routeid') or '')
+    route_name = str(row.get('routeName') or row.get('routename') or row.get('routeNm') or route_id)
+    predict1 = _to_int(row.get('predictTime1') or row.get('predictTime1Min') or row.get('predictTime1min'))
+    predict2 = _to_int(row.get('predictTime2') or row.get('predictTime2Min') or row.get('predictTime2min'))
+    location_no1 = _to_int(row.get('locationNo1'))
+    location_no2 = _to_int(row.get('locationNo2'))
+    return {
+        'routeId': route_id,
+        'routeName': route_name,
+        'stationId': str(row.get('stationId') or ''),
+        'staOrder': _to_int(row.get('staOrder')),
+        'predictTime1': predict1,
+        'predictTime2': predict2,
+        'predictTimes': [x for x in [predict1, predict2] if x is not None],
+        'locationNo1': location_no1,
+        'locationNo2': location_no2,
+        'lowPlate1': str(row.get('lowPlate1') or ''),
+        'lowPlate2': str(row.get('lowPlate2') or ''),
+    }
+
+
+def fetch_realtime_arrival_list(station_id: str):
+    station_key = str(station_id or '').strip()
+    if not station_key:
+        raise HTTPException(status_code=400, detail='stationId is required')
+
+    cache_key = ('realtimeArrivalList', station_key)
+    cached = realtime_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    service_key = _load_baseinfo_service_key()
+    url = 'https://apis.data.go.kr/6410000/busarrivalservice/v2/getBusArrivalListv2'
+    params = {
+        'serviceKey': service_key,
+        'stationId': station_key,
+        'format': 'json',
+    }
+
+    last_exc = None
+    for attempt in range(1, 4):
+        try:
+            r = requests.get(url, params=params, timeout=6)
+            r.raise_for_status()
+            doc = r.json()
+            body = _extract_msg_body(doc)
+            arr = body.get('busArrivalList') or body.get('itemList') or []
+            if isinstance(arr, dict):
+                arr = [arr]
+            items = [_normalize_arrival_row(x or {}) for x in arr if isinstance(x, dict)]
+            out = {
+                'stationId': station_key,
+                'count': len(items),
+                'items': items,
+            }
+            realtime_cache_set(cache_key, out)
+            return out
+        except Exception as e:
+            last_exc = e
+            if attempt < 3:
+                time.sleep(0.5 * attempt)
+
+    logger.exception(f"fetch_realtime_arrival_list failed stationId={station_key}: {last_exc}")
+    return {'stationId': station_key, 'count': 0, 'items': []}
+
+
+def fetch_realtime_arrival_item(station_id: str, route_id: str, sta_order: str):
+    station_key = str(station_id or '').strip()
+    route_key = str(route_id or '').strip()
+    order_key = str(sta_order or '').strip()
+    if not station_key or not route_key or not order_key:
+        raise HTTPException(status_code=400, detail='stationId, routeId, staOrder are required')
+
+    cache_key = ('realtimeArrivalItem', station_key, route_key, order_key)
+    cached = realtime_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    service_key = _load_baseinfo_service_key()
+    url = 'https://apis.data.go.kr/6410000/busarrivalservice/v2/getBusArrivalItemv2'
+    params = {
+        'serviceKey': service_key,
+        'stationId': station_key,
+        'routeId': route_key,
+        'staOrder': order_key,
+        'format': 'json',
+    }
+
+    last_exc = None
+    for attempt in range(1, 4):
+        try:
+            r = requests.get(url, params=params, timeout=6)
+            r.raise_for_status()
+            doc = r.json()
+            body = _extract_msg_body(doc)
+            item = body.get('busArrivalItem') or body.get('item') or body.get('itemList') or {}
+            if isinstance(item, list):
+                item = item[0] if item else {}
+            norm = _normalize_arrival_row(item if isinstance(item, dict) else {})
+            norm['stationId'] = station_key
+            norm['routeId'] = route_key
+            norm['staOrder'] = _to_int(order_key)
+            out = {
+                'stationId': station_key,
+                'routeId': route_key,
+                'staOrder': _to_int(order_key),
+                'item': norm,
+            }
+            realtime_cache_set(cache_key, out)
+            return out
+        except Exception as e:
+            last_exc = e
+            if attempt < 3:
+                time.sleep(0.5 * attempt)
+
+    logger.exception(f"fetch_realtime_arrival_item failed stationId={station_key} routeId={route_key} staOrder={order_key}: {last_exc}")
+    return {
+        'stationId': station_key,
+        'routeId': route_key,
+        'staOrder': _to_int(order_key),
+        'item': {
+            'stationId': station_key,
+            'routeId': route_key,
+            'staOrder': _to_int(order_key),
+            'routeName': route_key,
+            'predictTime1': None,
+            'predictTime2': None,
+            'predictTimes': [],
+        },
+    }
 
 
 def prefetch_past_arrivals(fetch_keys, max_workers=12):
@@ -1344,3 +1535,13 @@ def route_line(
         'routeId': rid,
         'path': path,
     }
+
+
+@app.get('/realtimeArrivalList')
+def realtime_arrival_list(stationId: str):
+    return fetch_realtime_arrival_list(stationId)
+
+
+@app.get('/realtimeArrivalItem')
+def realtime_arrival_item(stationId: str, routeId: str, staOrder: int):
+    return fetch_realtime_arrival_item(stationId, routeId, staOrder)
