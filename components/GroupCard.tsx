@@ -276,40 +276,41 @@ export default function GroupCard({
       }}
     >
       {/* Card header */}
-      <div className="relative mb-2 flex w-full items-center justify-between">
-        <span className="rounded-[10px] bg-gray-900 px-2 py-0.5 text-xs font-bold text-white">
-          결과 {index + 1}
-        </span>
-
-        <div className="pointer-events-none absolute left-1/2 top-1/2 w-max -translate-x-1/2 -translate-y-1/2 text-[11px] text-slate-700 text-center font-semibold whitespace-nowrap">
-          예상 총 소요 {totalMinText}
-        </div>
-        <button
-          type="button"
-          title={timetableState && !timetableHidden ? '시간표 닫기' : '통합 시간이력'}
-          aria-label={timetableState && !timetableHidden ? '시간표 닫기' : '통합 시간이력'}
-          className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-300 bg-white hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={!sday}
-          onClick={(ev) => {
-            ev.stopPropagation()
-            onToggleTimetable()
-          }}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+      <div className="mb-2 space-y-1.5">
+        <div className="flex w-full items-center justify-between gap-2">
+          <span className="rounded-[10px] bg-gray-900 px-2 py-0.5 text-xs font-bold text-white">
+            결과 {index + 1}
+          </span>
+          <div className="text-[11px] font-semibold text-slate-700">
+            예상 총 소요 {totalMinText}
+          </div>
+          <button
+            type="button"
+            title={timetableState && !timetableHidden ? '시간표 닫기' : '통합 시간이력'}
+            aria-label={timetableState && !timetableHidden ? '시간표 닫기' : '통합 시간이력'}
+            className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-300 bg-white hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!sday}
+            onClick={(ev) => {
+              ev.stopPropagation()
+              onToggleTimetable()
+            }}
           >
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 7v5l3 2" />
-          </svg>
-        </button>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Timeline */}

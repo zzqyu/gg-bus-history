@@ -80,6 +80,10 @@ export default function Home() {
   const [locatingEnd, setLocatingEnd] = useState(false)
   const [locatingMap, setLocatingMap] = useState(false)
   const [mapReadyTick, setMapReadyTick] = useState(0)
+  const [mobileMainView, setMobileMainView] = useState<'map' | 'results'>('map')
+  const [showScrollTop, setShowScrollTop] = useState(false)
+  const [searchedHeaderStart, setSearchedHeaderStart] = useState('')
+  const [searchedHeaderEnd, setSearchedHeaderEnd] = useState('')
 
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
@@ -365,27 +369,6 @@ export default function Home() {
     })
   }
 
-  function focusSelectedGroupOnMap(g: Group) {
-    const kakao = (window as any).kakao
-    if (!mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
-    const startLng = parseCoordValue(ax)
-    const startLat = parseCoordValue(ay)
-    const endLng = parseCoordValue(bx)
-    const endLat = parseCoordValue(by)
-    const boardLng = parseCoordValue(g.board?.lon)
-    const boardLat = parseCoordValue(g.board?.lat)
-    const alightLng = parseCoordValue(g.alight?.lon)
-    const alightLat = parseCoordValue(g.alight?.lat)
-    const nums = [startLng, startLat, endLng, endLat, boardLng, boardLat, alightLng, alightLat]
-    if (nums.some((v) => Number.isNaN(v))) return
-    const bounds = new kakao.maps.LatLngBounds()
-    bounds.extend(new kakao.maps.LatLng(startLat, startLng))
-    bounds.extend(new kakao.maps.LatLng(endLat, endLng))
-    bounds.extend(new kakao.maps.LatLng(boardLat, boardLng))
-    bounds.extend(new kakao.maps.LatLng(alightLat, alightLng))
-    mapRef.current.setBounds(bounds)
-  }
-
   async function fetchRouteLinePath(routeId: string, g?: Group): Promise<number[][]> {
     const key = String(routeId || '').trim()
     if (!key || !g) return []
@@ -568,6 +551,43 @@ export default function Home() {
     mapRef.current.setBounds(bounds)
   }
 
+  function focusSelectedGroupOnMap(g: Group) {
+    const kakao = (window as any).kakao
+    if (!mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
+    const startLng = parseCoordValue(ax)
+    const startLat = parseCoordValue(ay)
+    const endLng = parseCoordValue(bx)
+    const endLat = parseCoordValue(by)
+    const boardLng = parseCoordValue(g.board?.lon)
+    const boardLat = parseCoordValue(g.board?.lat)
+    const alightLng = parseCoordValue(g.alight?.lon)
+    const alightLat = parseCoordValue(g.alight?.lat)
+    const nums = [startLng, startLat, endLng, endLat, boardLng, boardLat, alightLng, alightLat]
+    if (nums.some((v) => Number.isNaN(v))) {
+      focusStartEndOnMap()
+      return
+    }
+    const bounds = new kakao.maps.LatLngBounds()
+    bounds.extend(new kakao.maps.LatLng(startLat, startLng))
+    bounds.extend(new kakao.maps.LatLng(endLat, endLng))
+    bounds.extend(new kakao.maps.LatLng(boardLat, boardLng))
+    bounds.extend(new kakao.maps.LatLng(alightLat, alightLng))
+    mapRef.current.setBounds(bounds)
+  }
+
+  function compactHeaderPlaceText(text: string): string {
+    const src = String(text || '').trim()
+    if (!src) return src
+    if (src.includes(',')) return src
+    const parts = src.split(/\s+/).filter(Boolean)
+    if (parts.length <= 3) return src
+    const guLikeIndex = parts.findIndex((p, idx) => idx > 0 && /[구군시]$/.test(p))
+    if (guLikeIndex >= 0) {
+      return parts.slice(guLikeIndex).join(' ')
+    }
+    return parts.slice(Math.max(0, parts.length - 3)).join(' ')
+  }
+
   function resolveAddressTextByCoord(lon: string, lat: string): Promise<string> {
     return new Promise((resolve) => {
       const kakao = (window as any).kakao
@@ -699,6 +719,11 @@ export default function Home() {
     handleSdayChange(getQuickDayValue(daysAgo, dateBounds))
   }
 
+  function scrollToPageTop() {
+    if (typeof window === 'undefined') return
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   function handleStartRadiusChange(v: string) {
     setStartRadius(v)
     resetTimetableViews()
@@ -814,7 +839,17 @@ export default function Home() {
 
   // ─── API calls ─────────────────────────────────────────────────────
 
-  async function doSearch(opts: { ax: string; ay: string; bx: string; by: string; aradius: string; bradius: string; sday: string }) {
+  async function doSearch(opts: {
+    ax: string
+    ay: string
+    bx: string
+    by: string
+    aradius: string
+    bradius: string
+    sday: string
+    startLabel?: string
+    endLabel?: string
+  }) {
     const startLng = parseCoordValue(opts.ax)
     const startLat = parseCoordValue(opts.ay)
     const endLng = parseCoordValue(opts.bx)
@@ -846,11 +881,26 @@ export default function Home() {
     setShowGroupList(true)
     setAllGroupsSelectedRouteIds([])
     setResult(j)
+    if (j && !j.error) {
+      setSearchedHeaderStart(compactHeaderPlaceText((opts.startLabel || `${opts.ay}, ${opts.ax}`).trim()))
+      setSearchedHeaderEnd(compactHeaderPlaceText((opts.endLabel || `${opts.by}, ${opts.bx}`).trim()))
+      setMobileMainView('results')
+    }
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    await doSearch({ ax, ay, bx, by, aradius: startRadius, bradius: endRadius, sday })
+    await doSearch({
+      ax,
+      ay,
+      bx,
+      by,
+      aradius: startRadius,
+      bradius: endRadius,
+      sday,
+      startLabel: startKeyword,
+      endLabel: endKeyword,
+    })
   }
 
   async function fetchGroupTimetable(g: Group, routeId: string | null = null) {
@@ -1611,6 +1661,16 @@ export default function Home() {
   }, [])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return
+    const onScroll = () => {
+      setShowScrollTop(window.scrollY > 480)
+    }
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  useEffect(() => {
     if (!allGroupsTimetable || allGroupsTimetable.loading || allGroupsTimetable.error) {
       setAllGroupsHighlightedRowIndex(-1)
       return
@@ -1641,6 +1701,29 @@ export default function Home() {
     if (expandedGroupKey) return
     focusStartEndOnMap()
   }, [result, expandedGroupKey, mapReadyTick, ax, ay, bx, by])
+
+  useEffect(() => {
+    if (mobileMainView !== 'map') return
+    const kakao = (window as any).kakao
+    if (!mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
+    const t = setTimeout(() => {
+      try {
+        if (typeof mapRef.current.relayout === 'function') mapRef.current.relayout()
+        kakao.maps.event.trigger(mapRef.current, 'resize')
+        if (expandedGroupKey && result && result.groups) {
+          const selected = result.groups.find((g) => getGroupKey(g) === expandedGroupKey)
+          if (selected) {
+            focusSelectedGroupOnMap(selected)
+            return
+          }
+        }
+        focusStartEndOnMap()
+      } catch {
+        // ignore map resize/focus errors
+      }
+    }, 120)
+    return () => clearTimeout(t)
+  }, [mobileMainView, expandedGroupKey, result, mapReadyTick, ax, ay, bx, by])
 
   // PWA install prompt (Android) + iOS detection
   useEffect(() => {
@@ -1709,6 +1792,8 @@ export default function Home() {
         const opts = {
           ax: qAx, ay: qAy, bx: qBx, by: qBy,
           aradius: qar || startRadius, bradius: qbr || endRadius, sday: qsday,
+          startLabel: qsk,
+          endLabel: qek,
         }
         setTimeout(() => { doSearch(opts).catch(() => {}) }, 50)
       }
@@ -1727,8 +1812,9 @@ export default function Home() {
   const quickDay7 = getQuickDayValue(7, dateBounds)
   const focusedCardOnly = !!expandedGroupKey && !showGroupList && !showAllGroupsTimetable
   const hasSearchResult = !!result && !result.loading && !result.error
-  const headerStartText = (startKeyword || (ax && ay ? `${ay}, ${ax}` : '')).trim()
-  const headerEndText = (endKeyword || (bx && by ? `${by}, ${bx}` : '')).trim()
+  const hasAnyResultState = result != null
+  const headerStartText = searchedHeaderStart
+  const headerEndText = searchedHeaderEnd
 
   // ─── Render ────────────────────────────────────────────────────────
 
@@ -1790,89 +1876,122 @@ export default function Home() {
           )}
         </div>
       </div>
-      <div className="p-5">
+      <div className="p-4 sm:p-5">
       <div className="mx-auto w-full max-w-[1200px]">
 
-      {/* Map section */}
-      <div className="mb-3 w-full rounded-lg border border-slate-300 p-3">
-        {/* Place search inputs */}
-        <div className="mb-2 flex items-stretch">
-          <button
-            className="w-10 shrink-0 rounded border border-slate-300 text-lg hover:bg-slate-50"
-            type="button"
-            onClick={swapStartEndPoints}
-            aria-label="출발지와 도착지 교체"
-            title="출발지와 도착지 교체"
-          >
-            ⇅
-          </button>
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <PlaceSearchInput
-              value={startKeyword}
-              onChange={setStartKeyword}
-              onSearch={() => searchPlace('start')}
-              onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'start')}
-              onLocate={() => getCurrentLocationAndSet('start')}
-              locating={locatingStart}
-              placeholder="출발지/주소 검색"
-            />
-            <PlaceSearchInput
-              value={endKeyword}
-              onChange={setEndKeyword}
-              onSearch={() => searchPlace('end')}
-              onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'end')}
-              onLocate={() => getCurrentLocationAndSet('end')}
-              locating={locatingEnd}
-              placeholder="도착지/주소 검색"
-            />
+      {hasAnyResultState && (
+        <div className="mb-3 flex md:hidden">
+          <div className="grid w-full grid-cols-2 rounded-lg border border-slate-300 bg-white p-1">
+            <button
+              type="button"
+              onClick={() => setMobileMainView('map')}
+              className="rounded px-2 py-1.5 text-xs font-semibold"
+              style={mobileMainView === 'map' ? { background: '#0f172a', color: '#fff' } : { color: '#334155' }}
+            >
+              지도/검색
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileMainView('results')}
+              className="rounded px-2 py-1.5 text-xs font-semibold"
+              style={mobileMainView === 'results' ? { background: '#0f172a', color: '#fff' } : { color: '#334155' }}
+            >
+              결과
+            </button>
           </div>
         </div>
+      )}
 
-        {/* Search result panels */}
-        {showSearchPanels && (
-          <div className="w-full mb-2 grid grid-cols-1 gap-3">
-            {showStartSearchPanel && (
-              <SearchResultsPanel
-                title="출발지 검색결과"
-                message={startSearchMsg}
-                results={startSearchResults}
-                onSelect={(p) => selectPlace('start', p)}
+      {/* Map section */}
+      <div className={`mb-3 w-full rounded-lg border border-slate-300 p-2 sm:p-3 ${(mobileMainView === 'results' && !focusedCardOnly) ? 'hidden md:block' : ''}`}>
+        {!focusedCardOnly && (
+          <>
+            {/* Place search inputs */}
+            <div className="mb-2 p-0 sm:rounded-md sm:border sm:border-slate-200 sm:bg-white sm:p-2">
+              <div className="mb-1.5 flex items-center gap-2 sm:mb-2">
+                <strong className="text-xs sm:text-sm">출발/도착지 설정</strong>
+                <span className="text-[11px] text-slate-600">(검색 또는 지도 핀)</span>
+              </div>
+              <div className="flex items-stretch">
+              <button
+                className="w-10 shrink-0 rounded border border-slate-300 text-lg hover:bg-slate-50"
+                type="button"
+                onClick={swapStartEndPoints}
+                aria-label="출발지와 도착지 교체"
+                title="출발지와 도착지 교체"
+              >
+                ⇅
+              </button>
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <PlaceSearchInput
+                  value={startKeyword}
+                  onChange={setStartKeyword}
+                  onSearch={() => searchPlace('start')}
+                  onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'start')}
+                  onLocate={() => getCurrentLocationAndSet('start')}
+                  locating={locatingStart}
+                  placeholder="출발지/주소 검색"
+                />
+                <PlaceSearchInput
+                  value={endKeyword}
+                  onChange={setEndKeyword}
+                  onSearch={() => searchPlace('end')}
+                  onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'end')}
+                  onLocate={() => getCurrentLocationAndSet('end')}
+                  locating={locatingEnd}
+                  placeholder="도착지/주소 검색"
+                />
+              </div>
+              </div>
+            </div>
+
+            {/* Search result panels */}
+            {showSearchPanels && (
+              <div className="w-full mb-2 grid grid-cols-1 gap-3">
+                {showStartSearchPanel && (
+                  <SearchResultsPanel
+                    title="출발지 검색결과"
+                    message={startSearchMsg}
+                    results={startSearchResults}
+                    onSelect={(p) => selectPlace('start', p)}
+                  />
+                )}
+                {showEndSearchPanel && (
+                  <SearchResultsPanel
+                    title="도착지 검색결과"
+                    message={endSearchMsg}
+                    results={endSearchResults}
+                    onSelect={(p) => selectPlace('end', p)}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* Map controls */}
+            <MapControls
+              startRadius={startRadius}
+              endRadius={endRadius}
+              onStartRadiusChange={handleStartRadiusChange}
+              onEndRadiusChange={handleEndRadiusChange}
+              onFocusStartEnd={focusStartEndOnMap}
+              onMoveToCurrentLocation={moveMapToCurrentLocation}
+              locatingMap={locatingMap}
+            />
+
+            {/* Pending map point */}
+            {pendingMapPoint && (
+              <PendingMapPointBar
+                point={pendingMapPoint}
+                onSetStart={() => applyPendingMapPoint('start')}
+                onSetEnd={() => applyPendingMapPoint('end')}
+                onClear={() => setPendingMapPoint(null)}
               />
             )}
-            {showEndSearchPanel && (
-              <SearchResultsPanel
-                title="도착지 검색결과"
-                message={endSearchMsg}
-                results={endSearchResults}
-                onSelect={(p) => selectPlace('end', p)}
-              />
-            )}
-          </div>
+
+            {/* Map error */}
+            {mapError && <div className="mb-2 text-red-600">{mapError}</div>}
+          </>
         )}
-
-        {/* Map controls */}
-        <MapControls
-          startRadius={startRadius}
-          endRadius={endRadius}
-          onStartRadiusChange={handleStartRadiusChange}
-          onEndRadiusChange={handleEndRadiusChange}
-          onFocusStartEnd={focusStartEndOnMap}
-          onMoveToCurrentLocation={moveMapToCurrentLocation}
-          locatingMap={locatingMap}
-        />
-
-        {/* Pending map point */}
-        {pendingMapPoint && (
-          <PendingMapPointBar
-            point={pendingMapPoint}
-            onSetStart={() => applyPendingMapPoint('start')}
-            onSetEnd={() => applyPendingMapPoint('end')}
-            onClear={() => setPendingMapPoint(null)}
-          />
-        )}
-
-        {/* Map error */}
-        {mapError && <div className="mb-2 text-red-600">{mapError}</div>}
 
         {/* Kakao map container */}
         <div
@@ -1884,30 +2003,34 @@ export default function Home() {
 
       {/* Search form */}
       {!focusedCardOnly && (
-        <form onSubmit={submit} className="grid w-full max-w-[720px] mx-0 gap-2 mt-4 px-2 sm:px-0">
-          <DateSelector
-            sday={sday}
-            dateBounds={dateBounds}
-            quickDay1={quickDay1}
-            quickDay2={quickDay2}
-            quickDay7={quickDay7}
-            onSdayChange={handleSdayChange}
-            onQuickDay={setQuickDay}
-          />
-          <div className="flex">
-            <button
-              type="submit"
-              className="h-11 w-[180px] rounded bg-slate-900 text-base font-bold text-white hover:bg-slate-700"
-            >
-              검색
-            </button>
+        <form onSubmit={submit} className="w-full mt-4 px-0">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3">
+            <div className="min-w-0 flex-1">
+              <DateSelector
+                sday={sday}
+                dateBounds={dateBounds}
+                quickDay1={quickDay1}
+                quickDay2={quickDay2}
+                quickDay7={quickDay7}
+                onSdayChange={handleSdayChange}
+                onQuickDay={setQuickDay}
+              />
+            </div>
+            <div className="flex justify-end sm:justify-start">
+              <button
+                type="submit"
+                className="h-10 sm:h-11 w-[170px] sm:w-[180px] rounded bg-slate-900 text-sm sm:text-base font-bold text-white hover:bg-slate-700"
+              >
+                검색
+              </button>
+            </div>
           </div>
         </form>
       )}
 
       {/* Results */}
       {result != null && (
-        <div ref={resultsSectionRef}>
+        <div ref={resultsSectionRef} className={mobileMainView === 'map' ? 'hidden md:block' : ''}>
           <ResultsSection
             result={result}
             sday={sday}
@@ -2019,6 +2142,22 @@ export default function Home() {
           }
         }}
       />
+
+      {showScrollTop && (
+        <button
+          type="button"
+          onClick={scrollToPageTop}
+          aria-label="상단으로 이동"
+          title="상단으로 이동"
+          className="btn-ui-icon fixed bottom-5 right-4 z-40 shadow-sm sm:right-6 sm:bottom-6"
+        >
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 19V5" />
+            <path d="M5 12l7-7 7 7" />
+          </svg>
+        </button>
+      )}
+
       {/* Footer */}
       <footer className="mt-6 border-t border-slate-200 pt-3 text-sm text-slate-600">
         <div className="w-full flex flex-col items-center justify-between gap-2 sm:flex-row">
