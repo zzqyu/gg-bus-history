@@ -21,15 +21,28 @@ export default function PlaceSearchInput({
 }: PlaceSearchInputProps) {
   return (
     <div className="flex items-center">
-      <input
-        className="h-9 min-w-0 flex-1 rounded border border-slate-300 px-2 py-1"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={onKeyDown}
-        placeholder={placeholder}
-      />
+      <div className="relative min-w-0 flex-1">
+        <input
+          className="h-9 min-w-0 w-full rounded border border-slate-300 px-2 pr-8 py-1 text-sm sm:text-base"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder={placeholder}
+        />
+        {value && (
+          <button
+            type="button"
+            onClick={() => onChange('')}
+            aria-label="입력 내용 지우기"
+            title="입력 내용 지우기"
+            className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex h-6 w-6 items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+          >
+            ×
+          </button>
+        )}
+      </div>
       <button
-        className="h-9 w-9 shrink-0 rounded border border-slate-300 text-base hover:bg-slate-50 disabled:opacity-50"
+        className="btn-ui-icon shrink-0 text-base disabled:opacity-50"
         type="button"
         onClick={onLocate}
         disabled={locating}
@@ -46,7 +59,7 @@ export default function PlaceSearchInput({
         )}
       </button>
       <button
-        className="h-9 w-9 shrink-0 rounded border border-slate-300 text-base hover:bg-slate-50 disabled:opacity-50 flex items-center justify-center"
+        className="btn-ui-icon shrink-0 text-base disabled:opacity-50 flex items-center justify-center"
         type="button"
         onClick={onSearch}
         aria-label={placeholder}

@@ -12,6 +12,15 @@ body {
   @apply bg-white text-slate-900;
 }
 
+/* Shared button styles for visual consistency */
+.btn-ui {
+  @apply rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 hover:bg-slate-50 sm:text-sm;
+}
+
+.btn-ui-icon {
+  @apply inline-flex h-9 w-9 items-center justify-center rounded border border-slate-300 bg-white text-slate-800 hover:bg-slate-50;
+}
+
 /* Prevent mobile browsers (esp. iOS) from auto-zooming inputs by ensuring
    a minimum font-size on small screens. This avoids disabling zoom for
    accessibility while preventing unwanted focus-zoom. */
