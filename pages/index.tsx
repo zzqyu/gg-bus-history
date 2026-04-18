@@ -1325,6 +1325,7 @@ export default function Home() {
       ].join('\n')
       const imageUrl = 'https://developers.kakao.com/assets/img/about/logos/kakaolink/kakaolink_btn_small.png'
       const customTemplateId = Number((process.env && process.env.NEXT_PUBLIC_KAKAO_SHARE_TEMPLATE_ID) || 0)
+      const jsKeyExists = !!((process.env && process.env.NEXT_PUBLIC_KAKAO_JS_KEY) || '')
 
       const sharePayload = {
         objectType: 'feed',
@@ -1359,7 +1360,13 @@ export default function Home() {
 
       // 디버깅에 필요한 최소 정보 로그
       try {
-        console.info('[kakao-share] urls', { resultsUrl, allTimetableUrl, customTemplateId })
+        console.info('[kakao-share] urls', {
+          origin: typeof window !== 'undefined' ? window.location.origin : '',
+          resultsUrl,
+          allTimetableUrl,
+          customTemplateId,
+          jsKeyExists,
+        })
       } catch {
         // ignore
       }
@@ -1446,8 +1453,20 @@ export default function Home() {
         Kakao.Share.sendDefault(sharePayload)
       }
       setSharePreviewOpen(false)
-    } catch {
-      alert('카카오톡 공유에 실패했습니다. 환경변수와 도메인 등록을 확인하세요.')
+    } catch (err: any) {
+      const reason = String(err && err.message ? err.message : err || 'unknown_error')
+      try {
+        console.error('[kakao-share] failed', {
+          reason,
+          origin: typeof window !== 'undefined' ? window.location.origin : '',
+          customTemplateId: Number((process.env && process.env.NEXT_PUBLIC_KAKAO_SHARE_TEMPLATE_ID) || 0),
+          jsKeyExists: !!((process.env && process.env.NEXT_PUBLIC_KAKAO_JS_KEY) || ''),
+          shareBaseUrl: (process.env && process.env.NEXT_PUBLIC_SHARE_BASE_URL) || '',
+        })
+      } catch {
+        // ignore
+      }
+      alert(`카카오톡 공유에 실패했습니다.\n원인: ${reason}\n콘솔의 [kakao-share] 로그를 확인하세요.`)
     }
   }
 
