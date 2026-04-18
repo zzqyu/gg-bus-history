@@ -850,6 +850,7 @@ export default function Home() {
     startLabel?: string
     endLabel?: string
   }) {
+    setResult({ loading: true })
     const startLng = parseCoordValue(opts.ax)
     const startLat = parseCoordValue(opts.ay)
     const endLng = parseCoordValue(opts.bx)
@@ -868,7 +869,6 @@ export default function Home() {
     } catch (e) {
       // 거리 계산 실패 시 기본 동작(검색 진행)
     }
-    setResult({ loading: true })
     resetTimetableViews()
     const params = new URLSearchParams({
       ax: opts.ax, ay: opts.ay, bx: opts.bx, by: opts.by,
@@ -1725,6 +1725,32 @@ export default function Home() {
     return () => clearTimeout(t)
   }, [mobileMainView, expandedGroupKey, result, mapReadyTick, ax, ay, bx, by])
 
+  // Mobile focused-card mode shows map while results tab is active.
+  // Ensure relayout/focus runs when this mode is entered for the first time.
+  useEffect(() => {
+    const isFocusedCardOnly = !!expandedGroupKey && !showGroupList && !showAllGroupsTimetable
+    if (!isFocusedCardOnly) return
+    const kakao = (window as any).kakao
+    if (!mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
+    const t = setTimeout(() => {
+      try {
+        if (typeof mapRef.current.relayout === 'function') mapRef.current.relayout()
+        kakao.maps.event.trigger(mapRef.current, 'resize')
+        if (expandedGroupKey && result && result.groups) {
+          const selected = result.groups.find((g) => getGroupKey(g) === expandedGroupKey)
+          if (selected) {
+            focusSelectedGroupOnMap(selected)
+            return
+          }
+        }
+        focusStartEndOnMap()
+      } catch {
+        // ignore map resize/focus errors
+      }
+    }, 120)
+    return () => clearTimeout(t)
+  }, [expandedGroupKey, showGroupList, showAllGroupsTimetable, result, mapReadyTick, ax, ay, bx, by])
+
   // PWA install prompt (Android) + iOS detection
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -1789,6 +1815,7 @@ export default function Home() {
       if (qek) setEndKeyword(qek)
 
       if (needSearch) {
+        setResult({ loading: true })
         const opts = {
           ax: qAx, ay: qAy, bx: qBx, by: qBy,
           aradius: qar || startRadius, bradius: qbr || endRadius, sday: qsday,
@@ -1815,6 +1842,7 @@ export default function Home() {
   const hasAnyResultState = result != null
   const headerStartText = searchedHeaderStart
   const headerEndText = searchedHeaderEnd
+  const uiBlockingLoading = !!(result && result.loading) || !!(allGroupsTimetable && allGroupsTimetable.loading)
 
   // ─── Render ────────────────────────────────────────────────────────
 
@@ -2025,8 +2053,15 @@ export default function Home() {
             <div className="flex justify-end sm:justify-start">
               <button
                 type="submit"
-                className="h-10 sm:h-11 w-[170px] sm:w-[180px] rounded bg-slate-900 text-sm sm:text-base font-bold text-white hover:bg-slate-700"
+                disabled={uiBlockingLoading}
+                className="inline-flex h-10 sm:h-11 w-[170px] sm:w-[180px] items-center justify-center gap-2 rounded bg-slate-900 text-sm sm:text-base font-bold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-70"
               >
+                {result?.loading && (
+                  <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+                    <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                )}
                 검색
               </button>
             </div>
@@ -2086,7 +2121,20 @@ export default function Home() {
             onMoveGroupToCurrentTime={moveGroupToCurrentTime}
             onFoldGroupTimetable={onFoldGroupTimetableAndKeepCardVisible}
             getCombinedForGroup={getCombinedForGroup}
+            allGroupsActionLoading={!!allGroupsTimetable?.loading}
           />
+        </div>
+      )}
+
+      {uiBlockingLoading && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/20" role="status" aria-live="polite" aria-label="로딩 중">
+          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-lg">
+            <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+              <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            로딩 중...
+          </div>
         </div>
       )}
 

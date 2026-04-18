@@ -41,6 +41,7 @@ interface ResultsSectionProps {
   onMoveGroupToCurrentTime: (groupKey: string) => void
   onFoldGroupTimetable: (groupKey: string) => void
   getCombinedForGroup: (groupKey: string) => TimetableEntry[]
+  allGroupsActionLoading?: boolean
 }
 
 export default function ResultsSection({
@@ -72,6 +73,7 @@ export default function ResultsSection({
   onMoveGroupToCurrentTime,
   onFoldGroupTimetable,
   getCombinedForGroup,
+  allGroupsActionLoading = false,
 }: ResultsSectionProps) {
   if (result.loading) {
     return <div className="mt-5">검색 중...</div>
@@ -249,10 +251,16 @@ export default function ResultsSection({
           {/* All groups timetable button */}
           <div className="mb-3">
             <button
-              className="btn-ui disabled:cursor-not-allowed disabled:opacity-50"
+              className="btn-ui inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
               onClick={onFetchAllGroupsTimetable}
-              disabled={!sday}
+              disabled={!sday || allGroupsActionLoading}
             >
+              {allGroupsActionLoading && (
+                <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+                  <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              )}
               모든 결과 통합 시간이력
             </button>
             {!sday && (
