@@ -21,6 +21,10 @@ export function parseRealtimeItemResponse(payload: any): RealtimeArrivalItem | n
   const rawP2 = Number(item.predictTime2)
   const p1 = Number.isFinite(rawP1) && rawP1 > 0 ? rawP1 : null
   const p2 = Number.isFinite(rawP2) && rawP2 > 0 ? rawP2 : null
+  const remainSeatCnt1 = Number.isFinite(Number(item.remainSeatCnt1)) ? Number(item.remainSeatCnt1) : null
+  const remainSeatCnt2 = Number.isFinite(Number(item.remainSeatCnt2)) ? Number(item.remainSeatCnt2) : null
+  const congestion1 = Number.isFinite(Number(item.congestion1)) ? Number(item.congestion1) : null
+  const congestion2 = Number.isFinite(Number(item.congestion2)) ? Number(item.congestion2) : null
   return {
     stationId,
     routeId,
@@ -29,7 +33,44 @@ export function parseRealtimeItemResponse(payload: any): RealtimeArrivalItem | n
     predictTime1: p1,
     predictTime2: p2,
     predictTimes: [p1, p2].filter((x): x is number => x != null),
+    remainSeatCnt1,
+    remainSeatCnt2,
+    congestion1,
+    congestion2,
   }
+}
+
+function getCongestionLabel(level: number | null | undefined): string {
+  if (level == null || !Number.isFinite(Number(level))) return ''
+  const n = Math.round(Number(level))
+  if (n <= 1) return '여유'
+  if (n === 2) return '보통'
+  if (n === 3) return '혼잡'
+  return '매우혼잡'
+}
+
+export function buildRealtimeOccupancyText(item: RealtimeArrivalItem | null | undefined, predictIndex: 1 | 2 = 1): string {
+  if (!item) return ''
+  const seat = predictIndex === 1 ? item.remainSeatCnt1 : item.remainSeatCnt2
+  if (seat != null && Number.isFinite(Number(seat)) && Number(seat) >= 0) {
+    return `좌석 ${Math.round(Number(seat))}`
+  }
+  const congestion = predictIndex === 1 ? item.congestion1 : item.congestion2
+  const label = getCongestionLabel(congestion)
+  if (label) return `혼잡 ${label}`
+  return ''
+}
+
+export function pickRealtimePredictIndex(
+  mappedRealtimeMin: number | null | undefined,
+  item: RealtimeArrivalItem | null | undefined,
+): 1 | 2 {
+  const rt = Math.round(Number(mappedRealtimeMin || 0))
+  const p1 = Math.round(Number(item?.predictTime1 || 0))
+  const p2 = Math.round(Number(item?.predictTime2 || 0))
+  if (mappedRealtimeMin == null || !Number.isFinite(rt) || rt <= 0) return 1
+  if (p2 > 0 && Math.abs(rt - p2) < (p1 > 0 ? Math.abs(rt - p1) : Number.POSITIVE_INFINITY)) return 2
+  return 1
 }
 
 export function buildRealtimeEtaText(min: number | null | undefined): string {

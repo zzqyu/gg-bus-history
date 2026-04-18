@@ -2,7 +2,7 @@ import React from 'react'
 import { AllGroupsTimetableState, RealtimeArrivalMap, StationNumberMaps, TimetableEntry } from '../types'
 import { compareRoutes } from '../utils/routeUtils'
 import { formatDisplayTime, formatDuration, formatSecondsToMinuteText, getServiceDayNowMinutes } from '../utils/timeUtils'
-import { getRouteNameStyle } from '../utils/styleUtils'
+import { canDisplaySeatCount, getRouteNameStyle } from '../utils/styleUtils'
 import { getAlightStationNumber, getBoardStationNumber } from '../utils/stationNumberUtils'
 import { buildRealtimeClockText, buildRealtimeKey, matchRealtimeToTimetableRows, parseRealtimeItemResponse } from '../utils/realtimeUtils'
 
@@ -449,12 +449,15 @@ export default function AllGroupsTimetable({
                     const boardName = String(e.boardStationName || '').trim()
                     const boardNo = getBoardStationNumber(stationNumberMaps, String(e.boardStationId || ''), boardName)
                     const boardText = formatDisplayTime(e.boardTime, sday)
+                    const boardSeatText = (canDisplaySeatCount(e.routeTypeCd) && e.remainSeatCnt != null && Number.isFinite(Number(e.remainSeatCnt)))
+                      ? `(${Math.round(Number(e.remainSeatCnt))}석)`
+                      : ''
                     return (
                       <span className="inline-flex items-center gap-1" title={boardName || '-'}>
                         <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold text-white">
                           {boardNo || '-'}
                         </span>
-                        <span>{boardText}</span>
+                        <span>{boardText}{boardSeatText}</span>
                         {(() => {
                           const clockText = buildRealtimeClockText(realtimeByRowIndex[idx])
                           if (clockText) {
@@ -464,10 +467,10 @@ export default function AllGroupsTimetable({
                                 style={{ background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe' }}
                                 title="실시간 도착 시각"
                               >
-                              {clockText}
-                            </span>
-                          )
-                        }
+                                {clockText}
+                              </span>
+                            )
+                          }
                           if (!isPastDisplayTime(boardText)) return null
                           return (
                             <span
