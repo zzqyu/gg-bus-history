@@ -1,6 +1,6 @@
 import React from 'react'
 import { Group, RealtimeArrivalItem } from '../types'
-import { getRouteNameStyle } from '../utils/styleUtils'
+import { canDisplaySeatCount, getRouteNameStyle } from '../utils/styleUtils'
 
 interface RealtimeArrivalPanelProps {
   group: Group
@@ -60,32 +60,41 @@ export default function RealtimeArrivalPanel({ group, stationType, open, onClose
   if (!open) return null
 
   return (
-    <div className="mt-2 rounded border border-slate-200 bg-white p-2">
+    <div className="rounded-b border border-slate-200 bg-white p-2">
       <div className="mb-1 flex items-center justify-between gap-2">
-        <div className="text-xs font-semibold text-slate-700">
-          실시간 도착 · {stationType === 'board' ? '탑승' : '하차'} 정류장 ({station.stationName})
+        <div className="min-w-0 truncate text-xs font-semibold text-slate-700" title={station.stationName}>
+          {station.stationName}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 whitespace-nowrap">
           <button
             type="button"
-            className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[10px] hover:bg-slate-50"
+            className="whitespace-nowrap rounded border border-slate-300 bg-white px-2 py-0.5 text-[10px] hover:bg-slate-50"
             onClick={() => setShowAll((p) => !p)}
           >
             {showAll ? '결과노선만' : '전체노선'}
           </button>
           <button
             type="button"
-            className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[10px] hover:bg-slate-50"
+            className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-300 bg-white hover:bg-slate-50"
             onClick={fetchList}
+            title="새로고침"
+            aria-label="새로고침"
           >
-            새로고침
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
+              <path d="M20 12a8 8 0 1 1-2.34-5.66" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              <path d="M20 4v6h-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
           </button>
           <button
             type="button"
-            className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[10px] hover:bg-slate-50"
+            className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-300 bg-white hover:bg-slate-50"
             onClick={onClose}
+            title="닫기"
+            aria-label="닫기"
           >
-            닫기
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
+              <path d="M6 6l12 12M18 6l-12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
           </button>
         </div>
       </div>
@@ -103,8 +112,20 @@ export default function RealtimeArrivalPanel({ group, stationType, open, onClose
                     {it.routeName || it.routeId}
                   </span>
                   <span className="text-slate-600">
-                    {it.predictTime1 != null ? `${it.predictTime1}분` : '-'}
-                    {it.predictTime2 != null ? ` / ${it.predictTime2}분` : ''}
+                    {(() => {
+                      const t1 = it.predictTime1
+                      const t2 = it.predictTime2
+                      const s1 = it.remainSeatCnt1
+                      const s2 = it.remainSeatCnt2
+                      const allowSeat = canDisplaySeatCount(routeTypeById[String(it.routeId || '').trim()])
+                      const p1 = (t1 != null)
+                        ? `${t1}분${allowSeat && s1 != null && s1 >= 0 ? `(${s1}석)` : ''}`
+                        : '-'
+                      const p2 = (t2 != null)
+                        ? `${t2}분${allowSeat && s2 != null && s2 >= 0 ? `(${s2}석)` : ''}`
+                        : ''
+                      return p2 ? `${p1} / ${p2}` : p1
+                    })()}
                   </span>
                 </li>
               ))}

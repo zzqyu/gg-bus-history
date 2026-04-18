@@ -236,7 +236,6 @@ export default function ResultsSection({
           <div className="mb-3">
             <h5 className="m-0 text-sm text-slate-500">{"* 하차 기록이 없는 경우 통계적으로 산출된 예상값입니다."}</h5>
             <h5 className="m-0 text-sm text-slate-500">{"* 현재·미래 운행 일정, 임시편성은 반영되지 않을 수 있습니다."}</h5>
-            <h5 className="m-0 text-sm text-slate-500">{"* 실제 승차 전, 버스정보시스템(경기버스정보 등)에서 실시간 확인을 권장합니다."}</h5>
             <h5 className="m-0 text-sm text-red-500">
               <span>
                 {"* 도보 시간은 직선거리 기준 추정치이며, 상세 도보 경로는 직선거리 옆 카드 버튼"}

@@ -242,12 +242,34 @@ export default function GroupCard({
   const nextRealtimeClockText = buildRealtimeClockText(realtime?.predictTime1 ?? null)
   const showRealtimeMappingFallback = !realtimeLoading && !realtimeClockText && !!nextRealtimeClockText
   const emphasizeRealtime = shouldEmphasizeRealtime(bestTimelineMin, realtimeMin, 7)
+  const realtimeBoardAbsMin = React.useMemo(() => {
+    if (realtimeMin == null || !Number.isFinite(Number(realtimeMin)) || realtimeMin <= 0) return null
+    return getServiceDayNowMinutes(new Date()) + Math.round(Number(realtimeMin))
+  }, [realtimeMin])
+
+  const realtimeDepartText = React.useMemo(() => {
+    if (serviceEnded) return ''
+    if (realtimeBoardAbsMin == null) return ''
+    return formatMinuteText(realtimeBoardAbsMin - walkStartMin)
+  }, [serviceEnded, realtimeBoardAbsMin, walkStartMin])
+
+  const realtimeAlightText = React.useMemo(() => {
+    if (serviceEnded) return ''
+    if (realtimeBoardAbsMin == null || bestBusMin == null) return ''
+    return formatMinuteText(realtimeBoardAbsMin + bestBusMin)
+  }, [serviceEnded, realtimeBoardAbsMin, bestBusMin])
+
+  const realtimeArriveText = React.useMemo(() => {
+    if (serviceEnded) return ''
+    if (realtimeBoardAbsMin == null || bestBusMin == null) return ''
+    return formatMinuteText(realtimeBoardAbsMin + bestBusMin + walkEndMin)
+  }, [serviceEnded, realtimeBoardAbsMin, bestBusMin, walkEndMin])
 
   return (
     <div
       onClick={onCardClick}
       data-group-key={groupKey}
-      className="mb-3 cursor-pointer rounded-lg p-3"
+      className="mb-2 cursor-pointer rounded p-2"
       style={{
         border: isExpanded ? '1px solid #2563eb' : '1px solid #ddd',
         background: isExpanded ? '#eff6ff' : '#fff',
@@ -291,7 +313,7 @@ export default function GroupCard({
       </div>
 
       {/* Timeline */}
-      <div className="rounded-lg border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-2.5">
+      <div className="rounded-t border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-2">
         <div className="grid grid-cols-[auto_minmax(0,0.7fr)_auto_minmax(0,2.2fr)_auto_minmax(0,0.7fr)_auto] items-start gap-1 text-[11px]">
           <div className='w-[24px]' />
           <div />
@@ -382,45 +404,115 @@ export default function GroupCard({
           )}</div>
           <div className="h-2.5 w-[24px] flex items-center justify-center"></div>
         </div>
-        <div className="-mt-0.1 grid grid-cols-[auto_minmax(0,0.7fr)_auto_minmax(0,2.2fr)_auto_minmax(0,0.7fr)_auto] items-start text-[11px] text-slate-700">
-          <div className="text-center">{departText}</div>
-          <div />
+        <div className="-mt-0.1 grid grid-cols-[auto_minmax(0,0.7fr)_auto_minmax(0,2.2fr)_auto_minmax(0,0.7fr)_auto] items-start text-[9.5px] text-slate-700">
           <div className="text-center">
-            <span className="inline-flex items-center gap-1">
-              <span>{boardText}</span>
-              {realtimeLoading ? (
-                <span
-                  className="rounded px-1 py-0.5 text-[10px] font-semibold"
-                  style={{ background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe' }}
-                  title="실시간 도착 조회 중"
-                >
-                  ...
-                </span>
-              ) : (realtimeClockText ? (
-                <span
-                  className="rounded px-1 py-0.5 text-[10px] font-semibold"
-                  style={emphasizeRealtime
-                    ? { background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }
-                    : { background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe' }}
-                  title={realtimeError || '실시간 도착 시각'}
-                >
-                  {realtimeClockText}
-                </span>
-              ) : (showRealtimeMappingFallback ? (
-                <span
-                  className="rounded px-1 py-0.5 text-[10px] font-semibold"
-                  style={{ background: '#fff7ed', color: '#9a3412', border: '1px solid #fdba74' }}
-                  title="시간이력 행에 실시간 매핑이 없어 다음 실시간을 참고값으로 표시"
-                >
-                  {`매핑불가(다음 실시간 ${nextRealtimeClockText})`}
-                </span>
-              ) : null))}
+            <span
+              className="inline-flex w-[6ch] h-[1.0rem] justify-center rounded px-1 py-0.5 font-semibold"
+              style={{ background: 'transparent', color: '#334155', border: '1px solid #cbd5e1' }}
+              title="기록 기준 출발 예정 시각"
+            >
+              {departText}
             </span>
           </div>
           <div />
-          <div className="text-center">{alightText}</div>
+          <div className="text-center">
+            <span
+              className="inline-flex w-[6ch] h-[1.0rem] justify-center rounded px-1 py-0.5 font-semibold"
+              style={{ background: 'transparent', color: '#334155', border: '1px solid #cbd5e1' }}
+              title="기록 기준 탑승 시각"
+            >
+              {boardText}
+            </span>
+          </div>
           <div />
-          <div className="text-center whitespace-nowrap">{arriveText}</div>
+          <div className="text-center">
+            <span
+              className="inline-flex w-[6ch] h-[1.0rem] justify-center rounded px-1 py-0.5 font-semibold"
+              style={{ background: 'transparent', color: '#334155', border: '1px solid #cbd5e1' }}
+              title="기록 기준 하차 시각"
+            >
+              {alightText}
+            </span>
+          </div>
+          <div />
+          <div className="text-center whitespace-nowrap">
+            <span
+              className="inline-flex w-[6ch] h-[1.0rem] justify-center rounded px-1 py-0.5 font-semibold"
+              style={{ background: 'transparent', color: '#334155', border: '1px solid #cbd5e1' }}
+              title="기록 기준 도착 예정 시각"
+            >
+              {arriveText}
+            </span>
+          </div>
+        </div>
+        <div className="mt-0.5 grid grid-cols-[auto_minmax(0,0.7fr)_auto_minmax(0,2.2fr)_auto_minmax(0,0.7fr)_auto] items-start text-[9.5px] text-slate-700">
+          <div className="text-center">
+            {realtimeDepartText ? (
+              <span
+                className="inline-flex w-[6ch] h-[1.0rem] justify-center rounded px-1 py-0.5 font-semibold"
+                style={{ background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe' }}
+                title="기준 출발 예정 시각"
+              >
+                {realtimeDepartText}
+              </span>
+            ) : null}
+          </div>
+          <div />
+          <div className="text-center">
+            {realtimeLoading ? (
+              <span
+                className="inline-flex w-[6ch] h-[1.0rem] justify-center rounded px-1 py-0.5 font-semibold"
+                style={{ background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe' }}
+                title="도착 조회 중"
+              >
+                ...
+              </span>
+            ) : (realtimeClockText ? (
+              <>
+                <span
+                  className="inline-flex w-[6ch] h-[1.0rem] justify-center rounded px-1 py-0.5 font-semibold"
+                  style={emphasizeRealtime
+                    ? { background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }
+                    : { background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe' }}
+                  title={realtimeError || '도착 시각'}
+                >
+                  {realtimeClockText}
+                </span>
+              </>
+            ) : (showRealtimeMappingFallback ? (
+              <span
+                className="inline-flex h-[1.0rem] justify-center rounded px-1 py-0.5 font-semibold"
+                style={{ background: '#fff7ed', color: '#9a3412', border: '1px solid #fdba74' }}
+                title="시간이력 행 매핑 불가, 다음 도착시각 참고"
+              >
+                {`매핑불가(다음 ${nextRealtimeClockText})`}
+              </span>
+            ) : null))}
+          </div>
+          <div />
+          <div className="text-center">
+            {realtimeAlightText ? (
+              <span
+                className="inline-flex w-[6ch] h-[1.0rem] justify-center rounded px-1 py-0.5 font-semibold"
+                style={{ background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe' }}
+                title="기준 하차 예정 시각"
+              >
+                {realtimeAlightText}
+              </span>
+            ) : null}
+          </div>
+          <div />
+          <div className="text-center whitespace-nowrap">
+            {realtimeArriveText ? (
+              <span
+                className="inline-flex w-[6ch] h-[1.0rem] justify-center rounded px-1 py-0.5 font-semibold"
+                style={{ background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe' }}
+                title="기준 도착 예정 시각"
+              >
+                {realtimeArriveText}
+              </span>
+            ) : null}
+          </div>
         </div>
 
         <div className="items-start gap-1 text-[11px]">
@@ -444,42 +536,66 @@ export default function GroupCard({
               })()
             ))}
           </div>
-          <div className="mt-1 flex flex-wrap items-center justify-center gap-1 text-[10px]">
-            <span className="text-slate-500">추천은 과거 이력 기준 · 실시간은 시간이력 매핑 기준</span>
-          </div>
-          <div className="mt-1 flex items-center justify-center gap-1">
-            <button
-              type="button"
-              className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[10px] hover:bg-slate-50"
-              onClick={(ev) => {
-                ev.stopPropagation()
-                setArrivalPanelStationType('board')
-                setArrivalPanelOpen(true)
-              }}
-            >
-              탑승정류장 실시간
-            </button>
-            <button
-              type="button"
-              className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[10px] hover:bg-slate-50"
-              onClick={(ev) => {
-                ev.stopPropagation()
-                setArrivalPanelStationType('alight')
-                setArrivalPanelOpen(true)
-              }}
-            >
-              하차정류장 실시간
-            </button>
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-1 text-[10px]">
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="text-slate-500">범례:</span>
+              <span
+                className="rounded px-1 py-0.5 font-semibold"
+                style={{ background: 'transparent', color: '#334155', border: '1px solid #cbd5e1' }}
+                title="기록(이력) 배지"
+              >
+                이력
+              </span>
+              <span
+                className="rounded px-1 py-0.5 font-semibold"
+                style={{ background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe' }}
+                title="실시간 배지"
+              >
+                실시간
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="rounded border px-2 py-0.5 text-[10px]"
+                style={arrivalPanelOpen && arrivalPanelStationType === 'board'
+                  ? { borderColor: '#93c5fd', background: '#dbeafe', color: '#1e40af' }
+                  : { borderColor: '#cbd5e1', background: '#fff', color: '#0f172a' }}
+                onClick={(ev) => {
+                  ev.stopPropagation()
+                  setArrivalPanelStationType('board')
+                  setArrivalPanelOpen(true)
+                }}
+              >
+                탑승 실시간
+              </button>
+              <button
+                type="button"
+                className="rounded border px-2 py-0.5 text-[10px]"
+                style={arrivalPanelOpen && arrivalPanelStationType === 'alight'
+                  ? { borderColor: '#93c5fd', background: '#dbeafe', color: '#1e40af' }
+                  : { borderColor: '#cbd5e1', background: '#fff', color: '#0f172a' }}
+                onClick={(ev) => {
+                  ev.stopPropagation()
+                  setArrivalPanelStationType('alight')
+                  setArrivalPanelOpen(true)
+                }}
+              >
+                하차 실시간
+              </button>
+            </div>
           </div>
         </div>
 
-        <RealtimeArrivalPanel
+        
+      </div>
+
+      <RealtimeArrivalPanel
           group={group}
           stationType={arrivalPanelStationType}
           open={arrivalPanelOpen}
           onClose={() => setArrivalPanelOpen(false)}
         />
-      </div>
 
       {/* Expanded section */}
       {isExpanded && (
