@@ -21,9 +21,9 @@ export default function DateSelector({
   onQuickDay,
 }: DateSelectorProps) {
   return (
-    <div className="flex flex-wrap items-center gap-1">
+    <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
       <div className="flex flex-wrap items-center">
-        <label className="mr-2">
+        <label className="mr-2 text-xs sm:text-sm">
           <strong>날짜:</strong>
         </label>
         <input
@@ -32,29 +32,29 @@ export default function DateSelector({
           min={dateBounds.min || undefined}
           max={dateBounds.max || undefined}
           onChange={(e) => onSdayChange(e.target.value)}
-          className="mr-2 rounded border border-slate-300 px-2 py-1"
+          className="mr-2 h-10 sm:h-11 rounded border border-slate-300 px-2.5 sm:px-3 text-sm sm:text-base"
         />
       </div>
-      <div className="flex flex-wrap items-center gap-0">
+      <div className="flex flex-wrap items-center gap-1">
         <button
-          className="rounded border border-slate-300 text-sm px-2 py-1 hover:bg-slate-50"
-          style={sday === quickDay1 ? { backgroundColor: '#e8f0ff' } : undefined}
+          className="h-9 sm:h-10 rounded border border-slate-300 px-2.5 sm:px-3 text-xs sm:text-sm font-semibold hover:bg-slate-50"
+          style={sday === quickDay1 ? { backgroundColor: '#dbeafe', borderColor: '#60a5fa', color: '#1d4ed8' } : undefined}
           type="button"
           onClick={() => onQuickDay(1)}
         >
           1일전
         </button>
         <button
-          className="rounded border border-slate-300 text-sm px-2 py-1 hover:bg-slate-50"
-          style={sday === quickDay2 ? { backgroundColor: '#e8f0ff' } : undefined}
+          className="h-9 sm:h-10 rounded border border-slate-300 px-2.5 sm:px-3 text-xs sm:text-sm font-semibold hover:bg-slate-50"
+          style={sday === quickDay2 ? { backgroundColor: '#dbeafe', borderColor: '#60a5fa', color: '#1d4ed8' } : undefined}
           type="button"
           onClick={() => onQuickDay(2)}
         >
           2일전
         </button>
         <button
-          className="rounded border border-slate-300 text-sm px-2 py-1 hover:bg-slate-50"
-          style={sday === quickDay7 ? { backgroundColor: '#e8f0ff' } : undefined}
+          className="h-9 sm:h-10 rounded border border-slate-300 px-2.5 sm:px-3 text-xs sm:text-sm font-semibold hover:bg-slate-50"
+          style={sday === quickDay7 ? { backgroundColor: '#dbeafe', borderColor: '#60a5fa', color: '#1d4ed8' } : undefined}
           type="button"
           onClick={() => onQuickDay(7)}
         >

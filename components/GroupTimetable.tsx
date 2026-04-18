@@ -2,7 +2,7 @@ import React from 'react'
 import { Group, GroupTimetableState, RealtimeArrivalMap, RouteBadgeInfo, TimetableEntry } from '../types'
 import { getGroupRouteBadges } from '../utils/routeUtils'
 import { formatDisplayTime, formatDuration, getServiceDayNowMinutes } from '../utils/timeUtils'
-import { getRouteNameStyle } from '../utils/styleUtils'
+import { canDisplaySeatCount, getRouteNameStyle } from '../utils/styleUtils'
 import { buildRealtimeClockText, buildRealtimeKey, matchRealtimeToTimetableRows, parseRealtimeItemResponse } from '../utils/realtimeUtils'
 
 interface GroupTimetableProps {
@@ -232,7 +232,12 @@ export default function GroupTimetable({
                   </td>
                   <td className="border-b border-gray-300 px-1 py-1.5 text-xs whitespace-nowrap">
                     <span className="inline-flex items-center gap-1">
-                      <span>{formatDisplayTime(e.boardTime, sday)}</span>
+                      <span>
+                        {formatDisplayTime(e.boardTime, sday)}
+                        {canDisplaySeatCount(e.routeTypeCd) && e.remainSeatCnt != null && Number.isFinite(Number(e.remainSeatCnt))
+                          ? `(${Math.round(Number(e.remainSeatCnt))}석)`
+                          : ''}
+                      </span>
                       {(() => {
                         const boardText = formatDisplayTime(e.boardTime, sday)
                         const clockText = buildRealtimeClockText(realtimeByRowIndex[cIdx])
@@ -243,10 +248,10 @@ export default function GroupTimetable({
                               style={{ background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe' }}
                               title="실시간 도착 시각"
                             >
-                            {clockText}
-                          </span>
-                        )
-                      }
+                              {clockText}
+                            </span>
+                          )
+                        }
                         if (!isPastDisplayTime(boardText)) return null
                         return (
                           <span

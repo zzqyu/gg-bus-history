@@ -1,5 +1,11 @@
 import React from 'react'
 
+const SEAT_DISPLAY_ROUTE_TYPE_CODES = new Set(['11', '12', '14', '16', '21', '22', '42'])
+
+export function canDisplaySeatCount(routeTypeCd?: string): boolean {
+  return SEAT_DISPLAY_ROUTE_TYPE_CODES.has(String(routeTypeCd || '').trim())
+}
+
 export function getRouteNameStyle(routeTypeCd?: string): React.CSSProperties {
   const code = String(routeTypeCd || '').trim()
   if (code === '16') return { color: '#e60012', fontWeight: 700 }

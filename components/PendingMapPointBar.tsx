@@ -16,25 +16,25 @@ export default function PendingMapPointBar({
 }: PendingMapPointBarProps) {
   return (
     <div className="mb-2 flex flex-wrap items-center gap-2 rounded border border-sky-200 bg-sky-50 p-2">
-      <span className="text-sm text-slate-700">
+      <span className="text-sm text-slate-800">
         선택 좌표: ({point.lon}, {point.lat})
       </span>
       <button
-        className="rounded border border-slate-300 bg-white px-2 py-1 text-sm hover:bg-slate-50"
+        className="btn-ui"
         type="button"
         onClick={onSetStart}
       >
         출발지로 설정
       </button>
       <button
-        className="rounded border border-slate-300 bg-white px-2 py-1 text-sm hover:bg-slate-50"
+        className="btn-ui"
         type="button"
         onClick={onSetEnd}
       >
         도착지로 설정
       </button>
       <button
-        className="rounded border border-slate-300 bg-white px-2 py-1 text-sm hover:bg-slate-50"
+        className="btn-ui"
         type="button"
         onClick={onClear}
       >

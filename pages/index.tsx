@@ -31,6 +31,22 @@ type AllGroupsGlobalStore = {
   cache?: Record<string, any>
 }
 
+type ShareViewType = 'results' | 'all_timetable'
+
+type SharePayload = {
+  title: string
+  text: string
+  url: string
+  summaryLines: string[]
+  startEndLine: string
+  baseTime: string
+  items: Array<{
+    route: string
+    time: string
+    desc: string
+  }>
+}
+
 export default function Home() {
   const [ax, setAx] = useState('')
   const [ay, setAy] = useState('')
@@ -64,6 +80,10 @@ export default function Home() {
   const [locatingEnd, setLocatingEnd] = useState(false)
   const [locatingMap, setLocatingMap] = useState(false)
   const [mapReadyTick, setMapReadyTick] = useState(0)
+  const [mobileMainView, setMobileMainView] = useState<'map' | 'results'>('map')
+  const [showScrollTop, setShowScrollTop] = useState(false)
+  const [searchedHeaderStart, setSearchedHeaderStart] = useState('')
+  const [searchedHeaderEnd, setSearchedHeaderEnd] = useState('')
 
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
@@ -349,27 +369,6 @@ export default function Home() {
     })
   }
 
-  function focusSelectedGroupOnMap(g: Group) {
-    const kakao = (window as any).kakao
-    if (!mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
-    const startLng = parseCoordValue(ax)
-    const startLat = parseCoordValue(ay)
-    const endLng = parseCoordValue(bx)
-    const endLat = parseCoordValue(by)
-    const boardLng = parseCoordValue(g.board?.lon)
-    const boardLat = parseCoordValue(g.board?.lat)
-    const alightLng = parseCoordValue(g.alight?.lon)
-    const alightLat = parseCoordValue(g.alight?.lat)
-    const nums = [startLng, startLat, endLng, endLat, boardLng, boardLat, alightLng, alightLat]
-    if (nums.some((v) => Number.isNaN(v))) return
-    const bounds = new kakao.maps.LatLngBounds()
-    bounds.extend(new kakao.maps.LatLng(startLat, startLng))
-    bounds.extend(new kakao.maps.LatLng(endLat, endLng))
-    bounds.extend(new kakao.maps.LatLng(boardLat, boardLng))
-    bounds.extend(new kakao.maps.LatLng(alightLat, alightLng))
-    mapRef.current.setBounds(bounds)
-  }
-
   async function fetchRouteLinePath(routeId: string, g?: Group): Promise<number[][]> {
     const key = String(routeId || '').trim()
     if (!key || !g) return []
@@ -552,6 +551,43 @@ export default function Home() {
     mapRef.current.setBounds(bounds)
   }
 
+  function focusSelectedGroupOnMap(g: Group) {
+    const kakao = (window as any).kakao
+    if (!mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
+    const startLng = parseCoordValue(ax)
+    const startLat = parseCoordValue(ay)
+    const endLng = parseCoordValue(bx)
+    const endLat = parseCoordValue(by)
+    const boardLng = parseCoordValue(g.board?.lon)
+    const boardLat = parseCoordValue(g.board?.lat)
+    const alightLng = parseCoordValue(g.alight?.lon)
+    const alightLat = parseCoordValue(g.alight?.lat)
+    const nums = [startLng, startLat, endLng, endLat, boardLng, boardLat, alightLng, alightLat]
+    if (nums.some((v) => Number.isNaN(v))) {
+      focusStartEndOnMap()
+      return
+    }
+    const bounds = new kakao.maps.LatLngBounds()
+    bounds.extend(new kakao.maps.LatLng(startLat, startLng))
+    bounds.extend(new kakao.maps.LatLng(endLat, endLng))
+    bounds.extend(new kakao.maps.LatLng(boardLat, boardLng))
+    bounds.extend(new kakao.maps.LatLng(alightLat, alightLng))
+    mapRef.current.setBounds(bounds)
+  }
+
+  function compactHeaderPlaceText(text: string): string {
+    const src = String(text || '').trim()
+    if (!src) return src
+    if (src.includes(',')) return src
+    const parts = src.split(/\s+/).filter(Boolean)
+    if (parts.length <= 3) return src
+    const guLikeIndex = parts.findIndex((p, idx) => idx > 0 && /[구군시]$/.test(p))
+    if (guLikeIndex >= 0) {
+      return parts.slice(guLikeIndex).join(' ')
+    }
+    return parts.slice(Math.max(0, parts.length - 3)).join(' ')
+  }
+
   function resolveAddressTextByCoord(lon: string, lat: string): Promise<string> {
     return new Promise((resolve) => {
       const kakao = (window as any).kakao
@@ -683,6 +719,11 @@ export default function Home() {
     handleSdayChange(getQuickDayValue(daysAgo, dateBounds))
   }
 
+  function scrollToPageTop() {
+    if (typeof window === 'undefined') return
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   function handleStartRadiusChange(v: string) {
     setStartRadius(v)
     resetTimetableViews()
@@ -798,7 +839,17 @@ export default function Home() {
 
   // ─── API calls ─────────────────────────────────────────────────────
 
-  async function doSearch(opts: { ax: string; ay: string; bx: string; by: string; aradius: string; bradius: string; sday: string }) {
+  async function doSearch(opts: {
+    ax: string
+    ay: string
+    bx: string
+    by: string
+    aradius: string
+    bradius: string
+    sday: string
+    startLabel?: string
+    endLabel?: string
+  }) {
     const startLng = parseCoordValue(opts.ax)
     const startLat = parseCoordValue(opts.ay)
     const endLng = parseCoordValue(opts.bx)
@@ -830,11 +881,26 @@ export default function Home() {
     setShowGroupList(true)
     setAllGroupsSelectedRouteIds([])
     setResult(j)
+    if (j && !j.error) {
+      setSearchedHeaderStart(compactHeaderPlaceText((opts.startLabel || `${opts.ay}, ${opts.ax}`).trim()))
+      setSearchedHeaderEnd(compactHeaderPlaceText((opts.endLabel || `${opts.by}, ${opts.bx}`).trim()))
+      setMobileMainView('results')
+    }
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    await doSearch({ ax, ay, bx, by, aradius: startRadius, bradius: endRadius, sday })
+    await doSearch({
+      ax,
+      ay,
+      bx,
+      by,
+      aradius: startRadius,
+      bradius: endRadius,
+      sday,
+      startLabel: startKeyword,
+      endLabel: endKeyword,
+    })
   }
 
   async function fetchGroupTimetable(g: Group, routeId: string | null = null) {
@@ -1082,67 +1148,38 @@ export default function Home() {
 
   // ─── Share ─────────────────────────────────────────────────────────
 
-  function buildShareUrl(): string {
-    try {
-      const params = new URLSearchParams()
-      if (ax) params.set('ax', ax)
-      if (ay) params.set('ay', ay)
-      if (bx) params.set('bx', bx)
-      if (by) params.set('by', by)
-      if (startRadius) params.set('aradius', startRadius)
-      if (endRadius) params.set('bradius', endRadius)
-      if (sday) params.set('sday', sday)
-      if (startKeyword) params.set('sk', startKeyword)
-      if (endKeyword) params.set('ek', endKeyword)
-      const base = typeof window !== 'undefined'
-        ? window.location.origin + window.location.pathname : ''
-      const qs = params.toString()
-      return qs ? `${base}?${qs}` : base
-    } catch {
-      return ''
-    }
+  function getDefaultBaseTime(): string {
+    const now = new Date()
+    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
   }
 
-  async function handleShare() {
-    // If we already have prefetched all-groups data, build preview immediately.
-    if (allGroupsTimetable && allGroupsTimetable.data) {
-      const payload = buildSharePayload()
-      if (!payload) { alert('공유 가능한 내용을 생성할 수 없습니다.'); return }
-      setSharePreviewText(payload.text)
-      setSharePreviewTitle(payload.title)
-      setSharePreviewLoading(false)
-      setSharePreviewOpen(true)
-      return
+  function normalizeBaseTime(v?: string): string {
+    const raw = String(v || '').trim()
+    const m = raw.match(/^(\d{1,2}):(\d{2})$/)
+    if (!m) return getDefaultBaseTime()
+    const h = Number(m[1])
+    const mm = Number(m[2])
+    if (!Number.isFinite(h) || !Number.isFinite(mm) || h < 0 || h > 23 || mm < 0 || mm > 59) {
+      return getDefaultBaseTime()
     }
-
-    // Otherwise, trigger prefetch and show loading modal until ready.
-    setSharePreviewOpen(true)
-    setSharePreviewText('')
-    setSharePreviewTitle('공유 내용을 준비 중...')
-    setSharePreviewLoading(true)
-    try {
-      await prefetchAllGroupsTimetable()
-      const payload = buildSharePayload()
-      if (!payload) {
-        setSharePreviewText('공유 가능한 내용을 생성할 수 없습니다.')
-        setSharePreviewTitle('공유 불가')
-      } else {
-        setSharePreviewText(payload.text)
-        setSharePreviewTitle(payload.title)
-      }
-    } catch (err) {
-      setSharePreviewText('공유할 내용을 가져오지 못했습니다.')
-      setSharePreviewTitle('오류')
-    } finally {
-      setSharePreviewLoading(false)
-    }
+    return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
   }
 
-  // Build share payload (title, text, url)
-  function buildSharePayload(): { title: string; text: string; url: string } | null {
-    const url = buildShareUrl()
-    if (!url) return null
+  function parseBaseTimeMinutes(v: string): number {
+    const normalized = normalizeBaseTime(v)
+    const m = normalized.match(/^(\d{2}):(\d{2})$/)
+    if (!m) return getServiceDayNowMinutes(new Date())
+    return Number(m[1]) * 60 + Number(m[2])
+  }
 
+  function compactPlaceText(v: string, max = 18): string {
+    const txt = String(v || '').replace(/\s+/g, ' ').trim()
+    if (!txt) return '-'
+    if (txt.length <= max) return txt
+    return txt.slice(0, max - 1) + '…'
+  }
+
+  function collectShareEntries(): TimetableEntry[] {
     let entries: TimetableEntry[] = []
     if (allGroupsTimetable && allGroupsTimetable.data && allGroupsTimetable.data.combined) {
       entries = allGroupsTimetable.data.combined
@@ -1158,25 +1195,294 @@ export default function Home() {
         }
       }
     }
+    return entries
+  }
 
-    const now = new Date()
-    const nowMinutes = getServiceDayNowMinutes(now)
+  function buildShareUrl(options: { view?: ShareViewType; baseTime?: string } = {}): string {
+    try {
+      const params = new URLSearchParams()
+      if (ax) params.set('ax', ax)
+      if (ay) params.set('ay', ay)
+      if (bx) params.set('bx', bx)
+      if (by) params.set('by', by)
+      if (startRadius) params.set('aradius', startRadius)
+      if (endRadius) params.set('bradius', endRadius)
+      if (sday) params.set('sday', sday)
+      if (startKeyword) params.set('sk', startKeyword)
+      if (endKeyword) params.set('ek', endKeyword)
+      if (options.view) params.set('view', options.view)
+      const bt = normalizeBaseTime(options.baseTime || shareBaseTime)
+      if (bt) params.set('base_time', bt)
+      const configuredBase = (process.env && process.env.NEXT_PUBLIC_SHARE_BASE_URL) || ''
+      const runtimeBase = typeof window !== 'undefined'
+        ? window.location.origin + window.location.pathname : ''
+      const base = String(configuredBase || runtimeBase).trim()
+      const qs = params.toString()
+      return qs ? `${base}?${qs}` : base
+    } catch {
+      return ''
+    }
+  }
+
+  async function handleShare() {
+    const clickedBaseTime = getDefaultBaseTime()
+    setShareBaseTime(clickedBaseTime)
+    // If we already have prefetched all-groups data, build preview immediately.
+    if (allGroupsTimetable && allGroupsTimetable.data) {
+      const payload = buildSharePayload(clickedBaseTime)
+      if (!payload) { alert('공유 가능한 내용을 생성할 수 없습니다.'); return }
+      setSharePreviewText(payload.text)
+      setSharePreviewTitle(payload.title)
+      setSharePreviewLoading(false)
+      setSharePreviewOpen(true)
+      return
+    }
+
+    // Otherwise, trigger prefetch and show loading modal until ready.
+    setSharePreviewOpen(true)
+    setSharePreviewText('')
+    setSharePreviewTitle('공유 내용을 준비 중...')
+    setSharePreviewLoading(true)
+    try {
+      await prefetchAllGroupsTimetable()
+      const payload = buildSharePayload(clickedBaseTime)
+      if (!payload) {
+        setSharePreviewText('공유 가능한 내용을 생성할 수 없습니다.')
+        setSharePreviewTitle('공유 불가')
+      } else {
+        setSharePreviewText(payload.text)
+        setSharePreviewTitle(payload.title)
+      }
+    } catch (err) {
+      setSharePreviewText('공유할 내용을 가져오지 못했습니다.')
+      setSharePreviewTitle('오류')
+    } finally {
+      setSharePreviewLoading(false)
+    }
+  }
+
+  async function ensureKakaoSdk(): Promise<any> {
+    if (typeof window === 'undefined') throw new Error('window unavailable')
+    const jsKey = (process.env && process.env.NEXT_PUBLIC_KAKAO_JS_KEY) || ''
+    if (!jsKey) throw new Error('NEXT_PUBLIC_KAKAO_JS_KEY missing')
+
+    const init = () => {
+      const Kakao = (window as any).Kakao
+      if (!Kakao) return null
+      if (typeof Kakao.isInitialized === 'function' && !Kakao.isInitialized()) Kakao.init(jsKey)
+      return Kakao
+    }
+
+    const already = init()
+    if (already) return already
+
+    await new Promise<void>((resolve, reject) => {
+      const scriptId = 'kakao-js-sdk'
+      const existing = document.getElementById(scriptId) as HTMLScriptElement | null
+      if (existing) {
+        existing.addEventListener('load', () => resolve(), { once: true })
+        existing.addEventListener('error', () => reject(new Error('kakao sdk load failed')), { once: true })
+        return
+      }
+      const script = document.createElement('script')
+      script.id = scriptId
+      script.async = true
+      script.src = 'https://developers.kakao.com/sdk/js/kakao.min.js'
+      script.onload = () => resolve()
+      script.onerror = () => reject(new Error('kakao sdk load failed'))
+      document.head.appendChild(script)
+    })
+
+    const loaded = init()
+    if (!loaded) throw new Error('Kakao global not found')
+    return loaded
+  }
+
+  async function handleKakaoShare() {
+    try {
+      const baseTime = normalizeBaseTime(shareBaseTime)
+      const payload = buildSharePayload(baseTime)
+      if (!payload) {
+        alert('공유 가능한 내용을 생성할 수 없습니다.')
+        return
+      }
+      const Kakao = await ensureKakaoSdk()
+      const resultsUrl = buildShareUrl({ view: 'results', baseTime })
+      const allTimetableUrl = buildShareUrl({ view: 'all_timetable', baseTime })
+      const toPathWithQuery = (u: string): string => {
+        try {
+          const parsed = new URL(u)
+          return `${parsed.pathname}${parsed.search}` || '/'
+        } catch {
+          return '/'
+        }
+      }
+      const resultsPath = toPathWithQuery(resultsUrl)
+      const allTimetablePath = toPathWithQuery(allTimetableUrl)
+      const description = [
+        '경기도 버스 시간 이력 조회 서비스입니다.',
+        '아래 버튼으로 검색 결과/통합 시간이력으로 바로 이동하세요.',
+      ].join('\n')
+      const imageUrl = 'https://developers.kakao.com/assets/img/about/logos/kakaolink/kakaolink_btn_small.png'
+      const customTemplateId = Number((process.env && process.env.NEXT_PUBLIC_KAKAO_SHARE_TEMPLATE_ID) || 0)
+
+      const sharePayload = {
+        objectType: 'feed',
+        content: {
+          title: payload.title,
+          description,
+          imageUrl,
+          imageWidth: 400,
+          imageHeight: 400,
+          link: {
+            mobileWebUrl: resultsUrl,
+            webUrl: resultsUrl,
+          },
+        },
+        buttons: [
+          {
+            title: '검색 결과 보기',
+            link: {
+              mobileWebUrl: resultsUrl,
+              webUrl: resultsUrl,
+            },
+          },
+          {
+            title: '통합 시간이력 보기',
+            link: {
+              mobileWebUrl: allTimetableUrl,
+              webUrl: allTimetableUrl,
+            },
+          },
+        ],
+      }
+
+      // 디버깅에 필요한 최소 정보 로그
+      try {
+        console.info('[kakao-share] urls', { resultsUrl, allTimetableUrl, customTemplateId })
+      } catch {
+        // ignore
+      }
+
+      // 커스텀 템플릿 ID가 설정된 경우 우선 사용
+      // template_args 키는 카카오 디벨로퍼스 템플릿 변수명과 동일해야 한다.
+      if (customTemplateId > 0 && Kakao.Share && typeof Kakao.Share.sendCustom === 'function') {
+        const items = payload.items || []
+        const getItem = (idx: number) => items[idx] || { route: '-', time: '-', desc: '-' }
+        const i1 = getItem(0)
+        const i2 = getItem(1)
+        const i3 = getItem(2)
+        const i4 = getItem(3)
+        const i5 = getItem(4)
+        const fallbackDate = new Date()
+        const fallbackMm = String(fallbackDate.getMonth() + 1).padStart(2, '0')
+        const fallbackDd = String(fallbackDate.getDate()).padStart(2, '0')
+        const mmdd = sday && /^\d{4}-\d{2}-\d{2}$/.test(sday)
+          ? sday.slice(5).replace('-', '/')
+          : `${fallbackMm}/${fallbackDd}`
+        const baseLabel = `${mmdd} ${payload.baseTime} 기준 시간 이력`
+        const startEnd = payload.startEndLine
+
+        Kakao.Share.sendCustom({
+          templateId: customTemplateId,
+          templateArgs: {
+            // 공통
+            TITLE: '"버스탈시간" 되었어요!',
+            DESCRIPTION: description,
+            RESULTS_URL: resultsUrl,
+            ALL_TIMETABLE_URL: allTimetableUrl,
+            RESULTS_PATH: resultsPath,
+            ALL_TIMETABLE_PATH: allTimetablePath,
+
+            // 리스트형 템플릿용(권장)
+            BASE_LABEL: baseLabel,
+            START_END: startEnd,
+            START_PLACE: startEnd.split('→')[0]?.trim() || '-',
+            END_PLACE: startEnd.split('→')[1]?.trim() || '-',
+
+            ITEM1_ROUTE: i1.route,
+            ITEM1_TIME: i1.time,
+            ITEM1_DESC: i1.desc,
+            ITEM2_ROUTE: i2.route,
+            ITEM2_TIME: i2.time,
+            ITEM2_DESC: i2.desc,
+            ITEM3_ROUTE: i3.route,
+            ITEM3_TIME: i3.time,
+            ITEM3_DESC: i3.desc,
+            ITEM4_ROUTE: i4.route,
+            ITEM4_TIME: i4.time,
+            ITEM4_DESC: i4.desc,
+            ITEM5_ROUTE: i5.route,
+            ITEM5_TIME: i5.time,
+            ITEM5_DESC: i5.desc,
+
+            // 숫자 키 기반 템플릿 호환(예: ROUTE_1/TIME_1)
+            ROUTE_1: i1.route,
+            TIME_1: i1.time,
+            DESC_1: i1.desc,
+            ROUTE_2: i2.route,
+            TIME_2: i2.time,
+            DESC_2: i2.desc,
+            ROUTE_3: i3.route,
+            TIME_3: i3.time,
+            DESC_3: i3.desc,
+            ROUTE_4: i4.route,
+            TIME_4: i4.time,
+            DESC_4: i4.desc,
+            ROUTE_5: i5.route,
+            TIME_5: i5.time,
+            DESC_5: i5.desc,
+          },
+        })
+        setSharePreviewOpen(false)
+        return
+      }
+
+      // 일부 카카오톡 클라이언트/SDK 조합에서 Share.sendDefault의 버튼 렌더링이 누락되는 사례가 있어
+      // Link.sendDefault를 우선 사용하고, 없으면 Share.sendDefault로 fallback 한다.
+      if (Kakao.Link && typeof Kakao.Link.sendDefault === 'function') {
+        Kakao.Link.sendDefault(sharePayload)
+      } else {
+        Kakao.Share.sendDefault(sharePayload)
+      }
+      setSharePreviewOpen(false)
+    } catch {
+      alert('카카오톡 공유에 실패했습니다. 환경변수와 도메인 등록을 확인하세요.')
+    }
+  }
+
+  // Build share payload (title, text, url)
+  function buildSharePayload(baseTimeInput?: string): SharePayload | null {
+    const baseTime = normalizeBaseTime(baseTimeInput || shareBaseTime)
+    const url = buildShareUrl({ view: 'results', baseTime })
+    if (!url) return null
+
+    const entries = collectShareEntries()
+
+    const baseMinutes = parseBaseTimeMinutes(baseTime)
     const withMinutes = entries.map((e) => ({ e, mins: getDisplayMinutes(e.boardTime) }))
-    const upcoming = withMinutes.filter((x) => x.mins != null && x.mins >= nowMinutes).sort((a, b) => (a.mins! - b.mins!)).map((x) => x.e)
+    const upcoming = withMinutes.filter((x) => x.mins != null && x.mins >= baseMinutes).sort((a, b) => (a.mins! - b.mins!)).map((x) => x.e)
     const fallbackSorted = withMinutes.filter((x) => x.mins != null).sort((a, b) => (a.mins! - b.mins!)).map((x) => x.e)
     const chosen = (upcoming.length > 0 ? upcoming : fallbackSorted).slice(0, 5)
 
     const title = '버스탈시간 검색 결과'
+    const startShort = compactPlaceText((startKeyword || (ax && ay ? `${ay}, ${ax}` : '-') || '-').trim(), 22)
+    const endShort = compactPlaceText((endKeyword || (bx && by ? `${by}, ${bx}` : '-') || '-').trim(), 22)
+    const startEndLine = `${startShort} → ${endShort}`
     const header: string[] = []
     header.push(title)
     if (sday) header.push(`날짜: ${sday}`)
-    if (startKeyword) header.push(`출발: ${startKeyword}`)
-    if (endKeyword) header.push(`도착: ${endKeyword}`)
+    header.push(`출발→도착: ${startEndLine}`)
+    header.push(`기준시간: ${baseTime} 이후 5회`)
     header.push('')
 
     const lines: string[] = []
+    const summaryLines: string[] = []
+    const items: Array<{ route: string; time: string; desc: string }> = []
     if (chosen.length === 0) {
       lines.push('예상 탑승 시간 정보가 없습니다.')
+      summaryLines.push('예상 탑승 시간 정보가 없습니다.')
+      items.push({ route: '-', time: '-', desc: '시간 이력 없음' })
     } else {
       for (const it of chosen) {
         const route = String(it.routeName || it.routeId || '-')
@@ -1186,18 +1492,34 @@ export default function Home() {
         const boardStation = it.boardStationName || ''
         const alightStation = it.alightStationName || ''
         const stationPart = boardStation || alightStation ? ` (${boardStation || '-'} → ${alightStation || '-'})` : ''
-        lines.push(`· ${route}${stationPart} — 탑승 ${board} / 하차 ${alight} (소요 ${dur})`)
+        const row = `· ${route}${stationPart} — 탑승 ${board} / 하차 ${alight} (소요 ${dur})`
+        lines.push(row)
+        summaryLines.push(`${route} ${board}~${alight}`)
+        let durationMinuteText = '-'
+        const durMatch = String(dur).match(/^(\d{2}):(\d{2})$/)
+        if (durMatch) {
+          const totalMinutes = Number(durMatch[1]) * 60 + Number(durMatch[2])
+          durationMinuteText = `${totalMinutes}분`
+        }
+        items.push({
+          route,
+          time: `탑승${board} 하차${alight}\t(${durationMinuteText})`,
+          desc: `${dur}${stationPart ? ' ' + stationPart : ''}`,
+        })
       }
     }
 
     const text = header.concat(lines).concat(['', url]).join('\n')
-    return { title, text, url }
+    while (items.length < 5) items.push({ route: '-', time: '-', desc: '-' })
+    return { title, text, url, summaryLines, startEndLine, baseTime, items }
   }
 
   const [sharePreviewOpen, setSharePreviewOpen] = useState(false)
   const [sharePreviewText, setSharePreviewText] = useState('')
   const [sharePreviewTitle, setSharePreviewTitle] = useState('')
   const [sharePreviewLoading, setSharePreviewLoading] = useState(false)
+  const [shareBaseTime, setShareBaseTime] = useState('')
+  const pendingLandingViewRef = useRef<ShareViewType | ''>('')
 
   // PWA install
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<any>(null)
@@ -1221,6 +1543,19 @@ export default function Home() {
     if (!result) return
     if (allGroupsTimetable && (allGroupsTimetable.data || allGroupsTimetable.loading)) return
     prefetchAllGroupsTimetable().catch(() => {})
+  }, [result])
+
+  useEffect(() => {
+    const pendingView = pendingLandingViewRef.current
+    if (!pendingView) return
+    if (!result || result.loading || result.error) return
+    pendingLandingViewRef.current = ''
+    if (pendingView === 'all_timetable') {
+      fetchAllGroupsTimetableAndFocus().catch(() => {})
+      return
+    }
+    setShowGroupList(true)
+    setShowAllGroupsTimetable(false)
   }, [result])
 
   useEffect(() => {
@@ -1326,6 +1661,16 @@ export default function Home() {
   }, [])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return
+    const onScroll = () => {
+      setShowScrollTop(window.scrollY > 480)
+    }
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  useEffect(() => {
     if (!allGroupsTimetable || allGroupsTimetable.loading || allGroupsTimetable.error) {
       setAllGroupsHighlightedRowIndex(-1)
       return
@@ -1356,6 +1701,29 @@ export default function Home() {
     if (expandedGroupKey) return
     focusStartEndOnMap()
   }, [result, expandedGroupKey, mapReadyTick, ax, ay, bx, by])
+
+  useEffect(() => {
+    if (mobileMainView !== 'map') return
+    const kakao = (window as any).kakao
+    if (!mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
+    const t = setTimeout(() => {
+      try {
+        if (typeof mapRef.current.relayout === 'function') mapRef.current.relayout()
+        kakao.maps.event.trigger(mapRef.current, 'resize')
+        if (expandedGroupKey && result && result.groups) {
+          const selected = result.groups.find((g) => getGroupKey(g) === expandedGroupKey)
+          if (selected) {
+            focusSelectedGroupOnMap(selected)
+            return
+          }
+        }
+        focusStartEndOnMap()
+      } catch {
+        // ignore map resize/focus errors
+      }
+    }, 120)
+    return () => clearTimeout(t)
+  }, [mobileMainView, expandedGroupKey, result, mapReadyTick, ax, ay, bx, by])
 
   // PWA install prompt (Android) + iOS detection
   useEffect(() => {
@@ -1401,6 +1769,13 @@ export default function Home() {
       const qsday = params.get('sday') || params.get('d') || ''
       const qsk = params.get('sk') || ''
       const qek = params.get('ek') || ''
+      const qview = params.get('view') || ''
+      const qBaseTime = params.get('base_time') || ''
+
+      if (qview === 'results' || qview === 'all_timetable') {
+        pendingLandingViewRef.current = qview as ShareViewType
+      }
+      if (qBaseTime) setShareBaseTime(normalizeBaseTime(qBaseTime))
 
       let needSearch = false
       if (qAx) { setAx(qAx); needSearch = true }
@@ -1417,6 +1792,8 @@ export default function Home() {
         const opts = {
           ax: qAx, ay: qAy, bx: qBx, by: qBy,
           aradius: qar || startRadius, bradius: qbr || endRadius, sday: qsday,
+          startLabel: qsk,
+          endLabel: qek,
         }
         setTimeout(() => { doSearch(opts).catch(() => {}) }, 50)
       }
@@ -1435,8 +1812,9 @@ export default function Home() {
   const quickDay7 = getQuickDayValue(7, dateBounds)
   const focusedCardOnly = !!expandedGroupKey && !showGroupList && !showAllGroupsTimetable
   const hasSearchResult = !!result && !result.loading && !result.error
-  const headerStartText = (startKeyword || (ax && ay ? `${ay}, ${ax}` : '')).trim()
-  const headerEndText = (endKeyword || (bx && by ? `${by}, ${bx}` : '')).trim()
+  const hasAnyResultState = result != null
+  const headerStartText = searchedHeaderStart
+  const headerEndText = searchedHeaderEnd
 
   // ─── Render ────────────────────────────────────────────────────────
 
@@ -1498,89 +1876,122 @@ export default function Home() {
           )}
         </div>
       </div>
-      <div className="p-5">
+      <div className="p-4 sm:p-5">
       <div className="mx-auto w-full max-w-[1200px]">
 
-      {/* Map section */}
-      <div className="mb-3 w-full rounded-lg border border-slate-300 p-3">
-        {/* Place search inputs */}
-        <div className="mb-2 flex items-stretch">
-          <button
-            className="w-10 shrink-0 rounded border border-slate-300 text-lg hover:bg-slate-50"
-            type="button"
-            onClick={swapStartEndPoints}
-            aria-label="출발지와 도착지 교체"
-            title="출발지와 도착지 교체"
-          >
-            ⇅
-          </button>
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <PlaceSearchInput
-              value={startKeyword}
-              onChange={setStartKeyword}
-              onSearch={() => searchPlace('start')}
-              onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'start')}
-              onLocate={() => getCurrentLocationAndSet('start')}
-              locating={locatingStart}
-              placeholder="출발지/주소 검색"
-            />
-            <PlaceSearchInput
-              value={endKeyword}
-              onChange={setEndKeyword}
-              onSearch={() => searchPlace('end')}
-              onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'end')}
-              onLocate={() => getCurrentLocationAndSet('end')}
-              locating={locatingEnd}
-              placeholder="도착지/주소 검색"
-            />
+      {hasAnyResultState && (
+        <div className="mb-3 flex md:hidden">
+          <div className="grid w-full grid-cols-2 rounded-lg border border-slate-300 bg-white p-1">
+            <button
+              type="button"
+              onClick={() => setMobileMainView('map')}
+              className="rounded px-2 py-1.5 text-xs font-semibold"
+              style={mobileMainView === 'map' ? { background: '#0f172a', color: '#fff' } : { color: '#334155' }}
+            >
+              지도/검색
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileMainView('results')}
+              className="rounded px-2 py-1.5 text-xs font-semibold"
+              style={mobileMainView === 'results' ? { background: '#0f172a', color: '#fff' } : { color: '#334155' }}
+            >
+              결과
+            </button>
           </div>
         </div>
+      )}
 
-        {/* Search result panels */}
-        {showSearchPanels && (
-          <div className="w-full mb-2 grid grid-cols-1 gap-3">
-            {showStartSearchPanel && (
-              <SearchResultsPanel
-                title="출발지 검색결과"
-                message={startSearchMsg}
-                results={startSearchResults}
-                onSelect={(p) => selectPlace('start', p)}
+      {/* Map section */}
+      <div className={`mb-3 w-full rounded-lg border border-slate-300 p-2 sm:p-3 ${(mobileMainView === 'results' && !focusedCardOnly) ? 'hidden md:block' : ''}`}>
+        {!focusedCardOnly && (
+          <>
+            {/* Place search inputs */}
+            <div className="mb-2 p-0 sm:rounded-md sm:border sm:border-slate-200 sm:bg-white sm:p-2">
+              <div className="mb-1.5 flex items-center gap-2 sm:mb-2">
+                <strong className="text-xs sm:text-sm">출발/도착지 설정</strong>
+                <span className="text-[11px] text-slate-600">(검색 또는 지도 핀)</span>
+              </div>
+              <div className="flex items-stretch">
+              <button
+                className="w-10 shrink-0 rounded border border-slate-300 text-lg hover:bg-slate-50"
+                type="button"
+                onClick={swapStartEndPoints}
+                aria-label="출발지와 도착지 교체"
+                title="출발지와 도착지 교체"
+              >
+                ⇅
+              </button>
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <PlaceSearchInput
+                  value={startKeyword}
+                  onChange={setStartKeyword}
+                  onSearch={() => searchPlace('start')}
+                  onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'start')}
+                  onLocate={() => getCurrentLocationAndSet('start')}
+                  locating={locatingStart}
+                  placeholder="출발지/주소 검색"
+                />
+                <PlaceSearchInput
+                  value={endKeyword}
+                  onChange={setEndKeyword}
+                  onSearch={() => searchPlace('end')}
+                  onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'end')}
+                  onLocate={() => getCurrentLocationAndSet('end')}
+                  locating={locatingEnd}
+                  placeholder="도착지/주소 검색"
+                />
+              </div>
+              </div>
+            </div>
+
+            {/* Search result panels */}
+            {showSearchPanels && (
+              <div className="w-full mb-2 grid grid-cols-1 gap-3">
+                {showStartSearchPanel && (
+                  <SearchResultsPanel
+                    title="출발지 검색결과"
+                    message={startSearchMsg}
+                    results={startSearchResults}
+                    onSelect={(p) => selectPlace('start', p)}
+                  />
+                )}
+                {showEndSearchPanel && (
+                  <SearchResultsPanel
+                    title="도착지 검색결과"
+                    message={endSearchMsg}
+                    results={endSearchResults}
+                    onSelect={(p) => selectPlace('end', p)}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* Map controls */}
+            <MapControls
+              startRadius={startRadius}
+              endRadius={endRadius}
+              onStartRadiusChange={handleStartRadiusChange}
+              onEndRadiusChange={handleEndRadiusChange}
+              onFocusStartEnd={focusStartEndOnMap}
+              onMoveToCurrentLocation={moveMapToCurrentLocation}
+              locatingMap={locatingMap}
+            />
+
+            {/* Pending map point */}
+            {pendingMapPoint && (
+              <PendingMapPointBar
+                point={pendingMapPoint}
+                onSetStart={() => applyPendingMapPoint('start')}
+                onSetEnd={() => applyPendingMapPoint('end')}
+                onClear={() => setPendingMapPoint(null)}
               />
             )}
-            {showEndSearchPanel && (
-              <SearchResultsPanel
-                title="도착지 검색결과"
-                message={endSearchMsg}
-                results={endSearchResults}
-                onSelect={(p) => selectPlace('end', p)}
-              />
-            )}
-          </div>
+
+            {/* Map error */}
+            {mapError && <div className="mb-2 text-red-600">{mapError}</div>}
+          </>
         )}
-
-        {/* Map controls */}
-        <MapControls
-          startRadius={startRadius}
-          endRadius={endRadius}
-          onStartRadiusChange={handleStartRadiusChange}
-          onEndRadiusChange={handleEndRadiusChange}
-          onFocusStartEnd={focusStartEndOnMap}
-          onMoveToCurrentLocation={moveMapToCurrentLocation}
-          locatingMap={locatingMap}
-        />
-
-        {/* Pending map point */}
-        {pendingMapPoint && (
-          <PendingMapPointBar
-            point={pendingMapPoint}
-            onSetStart={() => applyPendingMapPoint('start')}
-            onSetEnd={() => applyPendingMapPoint('end')}
-            onClear={() => setPendingMapPoint(null)}
-          />
-        )}
-
-        {/* Map error */}
-        {mapError && <div className="mb-2 text-red-600">{mapError}</div>}
 
         {/* Kakao map container */}
         <div
@@ -1592,30 +2003,34 @@ export default function Home() {
 
       {/* Search form */}
       {!focusedCardOnly && (
-        <form onSubmit={submit} className="grid w-full max-w-[720px] mx-0 gap-2 mt-4 px-2 sm:px-0">
-          <DateSelector
-            sday={sday}
-            dateBounds={dateBounds}
-            quickDay1={quickDay1}
-            quickDay2={quickDay2}
-            quickDay7={quickDay7}
-            onSdayChange={handleSdayChange}
-            onQuickDay={setQuickDay}
-          />
-          <div className="flex">
-            <button
-              type="submit"
-              className="h-11 w-[180px] rounded bg-slate-900 text-base font-bold text-white hover:bg-slate-700"
-            >
-              검색
-            </button>
+        <form onSubmit={submit} className="w-full mt-4 px-0">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3">
+            <div className="min-w-0 flex-1">
+              <DateSelector
+                sday={sday}
+                dateBounds={dateBounds}
+                quickDay1={quickDay1}
+                quickDay2={quickDay2}
+                quickDay7={quickDay7}
+                onSdayChange={handleSdayChange}
+                onQuickDay={setQuickDay}
+              />
+            </div>
+            <div className="flex justify-end sm:justify-start">
+              <button
+                type="submit"
+                className="h-10 sm:h-11 w-[170px] sm:w-[180px] rounded bg-slate-900 text-sm sm:text-base font-bold text-white hover:bg-slate-700"
+              >
+                검색
+              </button>
+            </div>
           </div>
         </form>
       )}
 
       {/* Results */}
       {result != null && (
-        <div ref={resultsSectionRef}>
+        <div ref={resultsSectionRef} className={mobileMainView === 'map' ? 'hidden md:block' : ''}>
           <ResultsSection
             result={result}
             sday={sday}
@@ -1673,8 +2088,18 @@ export default function Home() {
         open={sharePreviewOpen}
         title={sharePreviewTitle}
         text={sharePreviewText}
+        baseTime={shareBaseTime}
+        onBaseTimeChange={(v) => {
+          setShareBaseTime(v)
+          const payload = buildSharePayload(v)
+          if (payload) {
+            setSharePreviewText(payload.text)
+            setSharePreviewTitle(payload.title)
+          }
+        }}
         onClose={() => setSharePreviewOpen(false)}
         loading={sharePreviewLoading}
+        onKakaoShare={handleKakaoShare}
         onCopy={async () => {
           try {
             if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -1687,10 +2112,23 @@ export default function Home() {
             alert('복사에 실패했습니다.')
           }
         }}
+        onCopyLink={async () => {
+          try {
+            const link = buildShareUrl({ view: 'results', baseTime: shareBaseTime })
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(link)
+              alert('공유 링크를 클립보드에 복사했습니다.')
+            } else {
+              prompt('아래 링크를 복사하세요:', link)
+            }
+          } catch {
+            alert('링크 복사에 실패했습니다.')
+          }
+        }}
         onShare={async () => {
           try {
             if ((navigator as any).share) {
-              await (navigator as any).share({ title: sharePreviewTitle || '버스탈시간 검색 결과', text: sharePreviewText, url: buildShareUrl() })
+              await (navigator as any).share({ title: sharePreviewTitle || '버스탈시간 검색 결과', text: sharePreviewText, url: buildShareUrl({ view: 'results', baseTime: shareBaseTime }) })
             } else if (navigator.clipboard && navigator.clipboard.writeText) {
               await navigator.clipboard.writeText(sharePreviewText)
               alert('공유 텍스트를 클립보드에 복사했습니다.')
@@ -1704,6 +2142,22 @@ export default function Home() {
           }
         }}
       />
+
+      {showScrollTop && (
+        <button
+          type="button"
+          onClick={scrollToPageTop}
+          aria-label="상단으로 이동"
+          title="상단으로 이동"
+          className="btn-ui-icon fixed bottom-5 right-4 z-40 shadow-sm sm:right-6 sm:bottom-6"
+        >
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 19V5" />
+            <path d="M5 12l7-7 7 7" />
+          </svg>
+        </button>
+      )}
+
       {/* Footer */}
       <footer className="mt-6 border-t border-slate-200 pt-3 text-sm text-slate-600">
         <div className="w-full flex flex-col items-center justify-between gap-2 sm:flex-row">

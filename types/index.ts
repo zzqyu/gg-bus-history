@@ -58,6 +58,7 @@ export interface TimetableEntry {
   walkToBoardDistance?: number
   walkFromAlightDistance?: number
   walkTotalDistance?: number
+  remainSeatCnt?: number | null
 }
 
 export interface RouteTimetable {
@@ -137,6 +138,10 @@ export interface RealtimeArrivalItem {
   predictTime1?: number | null
   predictTime2?: number | null
   predictTimes: number[]
+  remainSeatCnt1?: number | null
+  remainSeatCnt2?: number | null
+  congestion1?: number | null
+  congestion2?: number | null
 }
 
 export type RealtimeArrivalMap = Record<string, RealtimeArrivalItem>

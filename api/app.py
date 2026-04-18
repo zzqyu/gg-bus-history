@@ -302,11 +302,22 @@ def _to_int(v):
         return None
 
 
+def _first_non_none(*values):
+    for v in values:
+        if v is not None:
+            return v
+    return None
+
+
 def _normalize_arrival_row(row):
     route_id = str(row.get('routeId') or row.get('routeid') or '')
     route_name = str(row.get('routeName') or row.get('routename') or row.get('routeNm') or route_id)
     predict1 = _to_int(row.get('predictTime1') or row.get('predictTime1Min') or row.get('predictTime1min'))
     predict2 = _to_int(row.get('predictTime2') or row.get('predictTime2Min') or row.get('predictTime2min'))
+    remain_seat_cnt1 = _to_int(_first_non_none(row.get('remainSeatCnt1'), row.get('remainseatcnt1'), row.get('remainSeat1')))
+    remain_seat_cnt2 = _to_int(_first_non_none(row.get('remainSeatCnt2'), row.get('remainseatcnt2'), row.get('remainSeat2')))
+    congestion1 = _to_int(row.get('congestion1') or row.get('crowded1') or row.get('crowd1'))
+    congestion2 = _to_int(row.get('congestion2') or row.get('crowded2') or row.get('crowd2'))
     location_no1 = _to_int(row.get('locationNo1'))
     location_no2 = _to_int(row.get('locationNo2'))
     return {
@@ -317,6 +328,10 @@ def _normalize_arrival_row(row):
         'predictTime1': predict1,
         'predictTime2': predict2,
         'predictTimes': [x for x in [predict1, predict2] if x is not None],
+        'remainSeatCnt1': remain_seat_cnt1,
+        'remainSeatCnt2': remain_seat_cnt2,
+        'congestion1': congestion1,
+        'congestion2': congestion2,
         'locationNo1': location_no1,
         'locationNo2': location_no2,
         'lowPlate1': str(row.get('lowPlate1') or ''),
@@ -431,6 +446,10 @@ def fetch_realtime_arrival_item(station_id: str, route_id: str, sta_order: str):
             'predictTime1': None,
             'predictTime2': None,
             'predictTimes': [],
+            'remainSeatCnt1': None,
+            'remainSeatCnt2': None,
+            'congestion1': None,
+            'congestion2': None,
         },
     }
 
@@ -638,12 +657,20 @@ def build_timetables_for_routes(routes, board_station_id: str, alight_station_id
                 at, a_entry = a_seq[ai]
                 pdt = prev_dts[bi]
                 prev_str = pdt.strftime('%Y-%m-%d %H:%M:%S') if pdt else None
+                remain_seat = _to_int(_first_non_none(
+                    b_entry.get('remainSeatCnt'),
+                    b_entry.get('remainSeatCnt1'),
+                    b_entry.get('remainseatcnt'),
+                    b_entry.get('remainseatcnt1'),
+                    b_entry.get('remainSeat'),
+                ))
                 entries.append({
                     'vehId': str(vid),
                     'boardRunSeq': b_entry.get('runSeq'),
                     'alightRunSeq': a_entry.get('runSeq'),
                     'boardTime': b_entry.get('arrivalDate') or b_entry.get('depatureDate'),
                     'alightTime': a_entry.get('arrivalDate') or a_entry.get('depatureDate'),
+                    'remainSeatCnt': remain_seat,
                     'prevTime': prev_str,
                     'inferred': False,
                     'inference_method': None,
@@ -682,6 +709,13 @@ def build_timetables_for_routes(routes, board_station_id: str, alight_station_id
             prev_str     = pdt.strftime('%Y-%m-%d %H:%M:%S') if pdt else None
             inferred_dt  = None
             method       = None
+            remain_seat = _to_int(_first_non_none(
+                b_entry.get('remainSeatCnt'),
+                b_entry.get('remainSeatCnt1'),
+                b_entry.get('remainseatcnt'),
+                b_entry.get('remainseatcnt1'),
+                b_entry.get('remainSeat'),
+            ))
 
             if pdt:
                 delta = per_veh_low.get(vid) or global_low_prev or global_med_prev
@@ -708,6 +742,7 @@ def build_timetables_for_routes(routes, board_station_id: str, alight_station_id
                 'alightRunSeq': None,
                 'boardTime': b_entry.get('arrivalDate') or b_entry.get('depatureDate'),
                 'alightTime': inferred_dt.strftime('%Y-%m-%d %H:%M:%S') if inferred_dt else None,
+                'remainSeatCnt': remain_seat,
                 'prevTime': prev_str,
                 'inferred': True,
                 'inference_method': method,
@@ -752,6 +787,7 @@ def build_timetables_for_routes(routes, board_station_id: str, alight_station_id
                 'orderGap': t.get('orderGap'),
                 'boardTime': e.get('boardTime'),
                 'alightTime': e.get('alightTime'),
+                'remainSeatCnt': e.get('remainSeatCnt'),
                 'prevTime': e.get('prevTime'),
                 'inferred': e.get('inferred'),
                 'inference_method': e.get('inference_method'),
@@ -1381,6 +1417,7 @@ def all_groups_timetable(ax: float, ay: float, bx: float, by: float, radius: int
                 'orderGap': e.get('orderGap'),
                 'boardTime': e.get('boardTime'),
                 'alightTime': e.get('alightTime'),
+                'remainSeatCnt': e.get('remainSeatCnt'),
                 'inferred': e.get('inferred'),
                 'inference_method': e.get('inference_method'),
                 'inference_confidence': e.get('inference_confidence'),
