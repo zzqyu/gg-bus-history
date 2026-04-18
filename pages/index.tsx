@@ -1884,7 +1884,13 @@ export default function Home() {
           <div className="grid w-full grid-cols-2 rounded-lg border border-slate-300 bg-white p-1">
             <button
               type="button"
-              onClick={() => setMobileMainView('map')}
+              onClick={() => {
+                setMobileMainView('map')
+                if (focusedCardOnly) {
+                  setShowGroupList(true)
+                  setShowAllGroupsTimetable(false)
+                }
+              }}
               className="rounded px-2 py-1.5 text-xs font-semibold"
               style={mobileMainView === 'map' ? { background: '#0f172a', color: '#fff' } : { color: '#334155' }}
             >
