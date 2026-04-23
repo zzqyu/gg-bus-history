@@ -495,6 +495,81 @@ def estimate_walk_time_seconds(distance_m: float) -> int:
     return int(round((d / speed_mps) * detour_factor))
 
 
+def find_prev_station_from_routestation(cur, route_id, alight_station_id, alight_order):
+    """routestation 기준으로 하차 정류장 이전의 '정차' 정류장을 찾는다.
+
+    - routeId + alight_station_id로 실제 DB의 alight staOrder 후보를 우선 수집
+    - 필요 시 전달된 alight_order를 보조 후보로 사용
+    - '(미정차)' 정류장은 제외
+    """
+    rid = str(route_id or '').strip()
+    asid = str(alight_station_id or '').strip()
+    if not rid:
+        return None
+
+    target_orders = []
+
+    if asid:
+        try:
+            cur.execute(
+                """
+                SELECT DISTINCT CAST(staOrder AS INTEGER) AS so
+                FROM routestation
+                WHERE routeId=? AND stationId=?
+                ORDER BY so
+                """,
+                (rid, asid),
+            )
+            for row in cur.fetchall() or []:
+                try:
+                    so = int(row[0])
+                    if so > 0:
+                        target_orders.append(so)
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    try:
+        ao = int(alight_order)
+        if ao > 0:
+            target_orders.append(ao)
+    except Exception:
+        pass
+
+    seen = set()
+    uniq_orders = []
+    for so in target_orders:
+        if so in seen:
+            continue
+        seen.add(so)
+        uniq_orders.append(so)
+    uniq_orders.sort()
+
+    for target in uniq_orders:
+        try:
+            cur.execute(
+                """
+                SELECT rs.stationId, CAST(rs.staOrder AS INTEGER) AS staOrder
+                FROM routestation rs
+                LEFT JOIN station s ON s.stationId = rs.stationId
+                WHERE rs.routeId=?
+                  AND CAST(rs.staOrder AS INTEGER) < ?
+                  AND (s.stationName IS NULL OR s.stationName NOT LIKE ?)
+                ORDER BY CAST(rs.staOrder AS INTEGER) DESC
+                LIMIT 1
+                """,
+                (rid, int(target), '%(미정차)%'),
+            )
+            row = cur.fetchone()
+            if row:
+                return str(row[0]), int(row[1])
+        except Exception:
+            continue
+
+    return None
+
+
 def build_kakao_walk_url(start_name, start_lon, start_lat, end_name, end_lon, end_lat):
     try:
         s_name = quote(str(start_name or '출발지').strip() or '출발지', safe='')
@@ -528,8 +603,9 @@ def build_timetables_for_routes(routes, board_station_id: str, alight_station_id
     MAX_PREV_TO_ALIGHT = 600
     LOW_PCT = 0.10
 
-    # ── Look up prev stationId (alightOrder - 1) and station coords for geo fallback ──
+    # ── Look up prev stationId from routestation and station coords for geo fallback ──
     prev_station_by_route = {}
+    prev_order_by_route = {}
     prev_station_coords = {}  # str(rid) -> (lat, lon)
     alight_coords = None      # (lat, lon) shared across routes in this call
     try:
@@ -545,24 +621,24 @@ def build_timetables_for_routes(routes, board_station_id: str, alight_station_id
                 alight_coords = (float(_ac[0]), float(_ac[1]))
             for r in routes or []:
                 rid = r.get('routeId')
-                try:
-                    prev_order = int(r.get('alightOrder')) - 1
-                except Exception:
+                if rid is None:
                     continue
-                if rid is not None and prev_order > 0:
-                    _cur.execute(
-                        "SELECT stationId FROM routestation WHERE routeId=? AND CAST(staOrder AS INTEGER)=?",
-                        (str(rid), prev_order)
-                    )
-                    row = _cur.fetchone()
-                    if row:
-                        prev_station_by_route[str(rid)] = str(row[0])
-                        # also fetch coords for this prev station
-                        _cur.execute("SELECT CAST(y AS REAL), CAST(x AS REAL) FROM station WHERE stationId=?",
-                                     (str(row[0]),))
-                        _pc = _cur.fetchone()
-                        if _pc:
-                            prev_station_coords[str(rid)] = (float(_pc[0]), float(_pc[1]))
+                prev_info = find_prev_station_from_routestation(
+                    _cur,
+                    route_id=str(rid),
+                    alight_station_id=str(alight_station_id),
+                    alight_order=r.get('alightOrder'),
+                )
+                if prev_info:
+                    prev_sid, prev_so = prev_info
+                    prev_station_by_route[str(rid)] = str(prev_sid)
+                    prev_order_by_route[str(rid)] = int(prev_so)
+                    # also fetch coords for this prev station
+                    _cur.execute("SELECT CAST(y AS REAL), CAST(x AS REAL) FROM station WHERE stationId=?",
+                                 (str(prev_sid),))
+                    _pc = _cur.fetchone()
+                    if _pc:
+                        prev_station_coords[str(rid)] = (float(_pc[0]), float(_pc[1]))
             _conn.close()
     except Exception as _e:
         logger.warning(f"build_timetables_for_routes: prev station lookup failed: {_e}")
@@ -583,8 +659,9 @@ def build_timetables_for_routes(routes, board_station_id: str, alight_station_id
         _pre_keys.append((_rid2, board_station_id, _bo2, sday_norm))
         _pre_keys.append((_rid2, alight_station_id, _ao2, sday_norm))
         _prev_sid2 = prev_station_by_route.get(str(_rid2))
-        if _prev_sid2:
-            _pre_keys.append((_rid2, _prev_sid2, _ao2 - 1, sday_norm))
+        _prev_so2 = prev_order_by_route.get(str(_rid2))
+        if _prev_sid2 and _prev_so2 is not None:
+            _pre_keys.append((_rid2, _prev_sid2, _prev_so2, sday_norm))
     if _pre_keys:
         prefetch_past_arrivals(_pre_keys)
 
@@ -617,9 +694,10 @@ def build_timetables_for_routes(routes, board_station_id: str, alight_station_id
         alight_list = fetch_past_arrivals(rid, alight_station_id, alight_order, sday_norm)
 
         prev_station_id = prev_station_by_route.get(str(rid))
+        prev_station_order = prev_order_by_route.get(str(rid))
         prev_list = []
-        if prev_station_id:
-            prev_list = fetch_past_arrivals(rid, prev_station_id, alight_order - 1, sday_norm)
+        if prev_station_id and prev_station_order is not None:
+            prev_list = fetch_past_arrivals(rid, prev_station_id, prev_station_order, sday_norm)
 
         board_groups  = group_by_vid(board_list)
         alight_groups = group_by_vid(alight_list)
@@ -1267,6 +1345,7 @@ def all_groups_timetable(ax: float, ay: float, bx: float, by: float, radius: int
             _conn_pre = get_db_connection(str(_dbp_pre))
             _cur_pre = _conn_pre.cursor()
             _prev_sid_pre = {}  # routeId -> prevStationId (deduped)
+            _prev_so_pre = {}   # routeId -> prevStationOrder
             for _g in groups:
                 _bsid = str((_g.get('board') or {}).get('stationId') or '')
                 _asid = str((_g.get('alight') or {}).get('stationId') or '')
@@ -1285,16 +1364,21 @@ def all_groups_timetable(ax: float, ay: float, bx: float, by: float, radius: int
                     _pre_keys_all.append((_ridstr, _bsid, _bo, sday_norm))
                     _pre_keys_all.append((_ridstr, _asid, _ao, sday_norm))
                     if _ridstr not in _prev_sid_pre:
-                        if _ao - 1 > 0:
-                            _cur_pre.execute(
-                                "SELECT stationId FROM routestation WHERE routeId=? AND CAST(staOrder AS INTEGER)=?",
-                                (_ridstr, _ao - 1)
-                            )
-                            _row_pre = _cur_pre.fetchone()
-                            _prev_sid_pre[_ridstr] = str(_row_pre[0]) if _row_pre else None
+                        _prev_info_pre = find_prev_station_from_routestation(
+                            _cur_pre,
+                            route_id=_ridstr,
+                            alight_station_id=_asid,
+                            alight_order=_ao,
+                        )
+                        if _prev_info_pre:
+                            _prev_sid_pre[_ridstr] = str(_prev_info_pre[0])
+                            _prev_so_pre[_ridstr] = int(_prev_info_pre[1])
+                        else:
+                            _prev_sid_pre[_ridstr] = None
                     _psid = _prev_sid_pre.get(_ridstr)
-                    if _psid:
-                        _pre_keys_all.append((_ridstr, _psid, _ao - 1, sday_norm))
+                    _pso = _prev_so_pre.get(_ridstr)
+                    if _psid and _pso is not None:
+                        _pre_keys_all.append((_ridstr, _psid, _pso, sday_norm))
             _conn_pre.close()
     except Exception as _pre_e:
         logger.warning(f"allGroupsTimetable: pre-fetch key collection failed: {_pre_e}")
