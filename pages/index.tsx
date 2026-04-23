@@ -1850,6 +1850,41 @@ export default function Home() {
     <div className="font-sans text-[80%] text-slate-900 sm:text-[100%]">
       <Head>
         <title>버스탈시간-경기도 버스 시간 이력 조회 서비스</title>
+        <meta name="description" content="경기도 버스 노선/시간 정보를 기반으로 출발지·도착지 경로와 버스 시간표를 빠르게 확인할 수 있는 서비스입니다." />
+        <link rel="canonical" href="https://bustal-time.kro.kr/" />
+
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="버스탈시간" />
+        <meta property="og:title" content="버스탈시간 - 경기도 버스 시간 이력 조회" />
+        <meta property="og:description" content="경기도 버스 경로/시간표를 손쉽게 검색하고, 출발지·도착지 기준으로 빠르게 확인하세요." />
+        <meta property="og:url" content="https://bustal-time.kro.kr/" />
+        <meta property="og:image" content="https://bustal-time.kro.kr/favicon.svg" />
+
+        <meta name="twitter:card" content="summary" />
+        <meta name="twitter:title" content="버스탈시간 - 경기도 버스 시간 이력 조회" />
+        <meta name="twitter:description" content="경기도 버스 경로/시간표를 출발지·도착지 기준으로 빠르게 검색해보세요." />
+        <meta name="twitter:image" content="https://bustal-time.kro.kr/favicon.svg" />
+
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              '@context': 'https://schema.org',
+              '@type': 'WebApplication',
+              name: '버스탈시간',
+              url: 'https://bustal-time.kro.kr/',
+              applicationCategory: 'TravelApplication',
+              operatingSystem: 'Web',
+              description: '경기도 버스 시간 이력 및 경로 탐색 서비스',
+              inLanguage: 'ko-KR',
+              offers: {
+                '@type': 'Offer',
+                price: '0',
+                priceCurrency: 'KRW',
+              },
+            }),
+          }}
+        />
       </Head>
 
       <div className="sticky top-0 z-10 w-full bg-white border-b border-slate-200">
