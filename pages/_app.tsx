@@ -14,6 +14,7 @@ export default function App({ Component, pageProps }: AppProps) {
     <>
       <Head>
         <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+        <meta name="application-name" content="버스탈시간" />
         <meta name="google-site-verification" content="krc5Ql6xLRJcuO1H4KETKxtG1cozEJ6-oE6U9IROdxA" />
         <meta name="naver-site-verification" content="2e79c240266f4cf80f0120f65f75190c6a45781d" />
         <link rel="shortcut icon" href="/favicon-32x32.png" />

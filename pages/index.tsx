@@ -1870,6 +1870,20 @@ export default function Home() {
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
               '@context': 'https://schema.org',
+              '@type': 'WebSite',
+              url: 'https://bustal-time.kro.kr/',
+              name: '버스탈시간',
+              alternateName: '버스탈시간-경기도 버스 시간 이력 조회 서비스',
+              inLanguage: 'ko-KR',
+            }),
+          }}
+        />
+
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              '@context': 'https://schema.org',
               '@type': 'WebApplication',
               name: '버스탈시간',
               url: 'https://bustal-time.kro.kr/',
