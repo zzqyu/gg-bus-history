@@ -77,6 +77,12 @@ function formatBusDuration(entry: TimetableEntry | null): string {
   return hours > 0 ? `${hours}시간 ${minutes}분` : `${minutes}분`
 }
 
+/** 정류장명이 11자 이상이면 10자까지만 보여주고 말줄임표를 붙인다. */
+function truncateStationName(name?: string | null): string {
+  const trimmed = String(name || '').trim()
+  return trimmed.length > 10 ? `${trimmed.slice(0, 10)}…` : trimmed
+}
+
 function confidenceText(confidence?: string | null): string {
   const value = String(confidence || '').trim().toLowerCase()
   if (value === 'high') return '높음'
@@ -258,14 +264,16 @@ export function TimetableRow({
             {typeLabel && <span className="text-xs font-semibold text-muted-foreground">{typeLabel}</span>}
           </div>
           <p className="mt-1 truncate text-xs text-muted-foreground">
-            {entry.boardStationName || '-'} · {entry.orderGap ?? '-'}정거장
+            {entry.boardStationName ? truncateStationName(entry.boardStationName) : '-'} · {entry.orderGap ?? '-'}정거장
           </p>
         </div>
 
         <div className="min-w-0 rounded-xl border border-primary/20 bg-primary/5 p-3 sm:col-start-3 sm:row-start-1">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
-              <p className="truncate text-xs font-bold text-primary">{entry.alightStationName || '목적지'} 하차예상</p>
+              <p className="truncate text-xs font-bold text-primary">
+                {entry.alightStationName ? truncateStationName(entry.alightStationName) : '목적지'} 하차예상
+              </p>
               <p className="mt-0.5 text-base font-extrabold tabular-nums text-primary">{alightText}</p>
             </div>
             <div className="text-right">
