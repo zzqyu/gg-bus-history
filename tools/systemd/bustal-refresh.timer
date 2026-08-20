@@ -1,8 +1,11 @@
 [Unit]
-Description=Run bustal-refresh.service daily at 04:00 KST
+Description=Run bustal-refresh.service daily at 05:00 KST
 
 [Timer]
-OnCalendar=*-*-* 04:00:00
+# 당일 원시데이터(baseInfo 다운로드 URL)는 보통 새벽 4~5시경에야 채워진다 — 그
+# 전에 실행하면 다운로드가 200 OK/0바이트로 비어 있는 채로 온다. 여유를 두고
+# 05:00에 실행한다.
+OnCalendar=*-*-* 05:00:00
 Persistent=true
 RandomizedDelaySec=300
 

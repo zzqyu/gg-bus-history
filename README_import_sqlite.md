@@ -79,7 +79,7 @@ CREATE INDEX IF NOT EXISTS idx_station_id ON station(id);
 
 운영 서버 자동 갱신 (systemd 타이머)
 - `import_to_sqlite.py`는 `CREATE TABLE IF NOT EXISTS` + 단순 INSERT라서, 같은 DB 파일에 반복 실행하면 행이 계속 누적됩니다(중복). 그래서 매일 자동 갱신은 이 스크립트를 직접 크론/타이머에 거는 대신 `tools/refresh_basedata.sh`를 씁니다 — 새 파일(`basedata.db.new`)에 임포트하고, 핵심 테이블에 데이터가 들어왔는지 확인한 뒤에만 `api` 컨테이너를 내리고 기존 `basedata.db`를 교체·재기동합니다.
-- 운영 서버(`/root/gg-bus-history`)에 `tools/systemd/bustal-refresh.service`, `tools/systemd/bustal-refresh.timer`를 `/etc/systemd/system/`에 설치하고 `systemctl enable --now bustal-refresh.timer`로 매일 04:00(KST)에 실행되게 등록되어 있습니다. 로그는 `journalctl -u bustal-refresh.service`로 확인합니다.
+- 운영 서버(`/root/gg-bus-history`)에 `tools/systemd/bustal-refresh.service`, `tools/systemd/bustal-refresh.timer`를 `/etc/systemd/system/`에 설치하고 `systemctl enable --now bustal-refresh.timer`로 매일 05:00(KST)에 실행되게 등록되어 있습니다. 당일 원시데이터는 보통 새벽 4~5시경에야 채워지므로(그 전에는 다운로드 URL이 200 OK/0바이트로 빈 채 온다) 여유를 두고 05:00으로 잡았습니다. 로그는 `journalctl -u bustal-refresh.service`로 확인합니다.
 
 웹 UI(Next.js) 예시
 - 경로 검색 웹 앱을 포함한 예시 Next.js 프로젝트가 워크스페이스에 추가되어 있습니다. 앱은 `basedata.db`를 열어 A/B 위치 반경 내 정류장을 찾고, 동일 노선상에서 A->B 순서로 이동 가능한 노선들을 반환합니다.
