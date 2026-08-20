@@ -11,9 +11,9 @@ interface PresetOption {
 }
 
 const PRESETS: PresetOption[] = [
-  { key: 'lastWeek', label: '지난주 같은 요일', daysAgo: 7 },
   { key: 'yesterday', label: '어제', daysAgo: 1 },
-  { key: 'twoWeeksAgo', label: '2주 전 같은 요일', daysAgo: 14 },
+  { key: 'lastWeek', label: '1주 전', daysAgo: 7 },
+  { key: 'twoWeeksAgo', label: '2주 전', daysAgo: 14 },
 ]
 
 export function formatDateLabel(value: string): string {
