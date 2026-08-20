@@ -2338,7 +2338,11 @@ export default function Home() {
       {/* Results — P4-T1: 구 ResultsSection/GroupCard/GroupTimetable/AllGroupsTimetable을
           ResultCard/TimetableView/DaySwitcher(components/result/*)로 교체 */}
       {result != null && (
-        <div ref={resultsSectionRef} className={mobileMainView === 'map' ? 'hidden md:block' : ''}>
+        <div
+          ref={resultsSectionRef}
+          className={mobileMainView === 'map' ? 'hidden md:block' : ''}
+          style={{ scrollMarginTop: appHeaderHeight }}
+        >
           {result.loading && <div className="mt-5">검색 중...</div>}
           {result.error && (
             <div className="mt-5 flex flex-wrap items-center gap-2">
