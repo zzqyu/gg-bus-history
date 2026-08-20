@@ -215,7 +215,7 @@ export function TimetableRow({
   const occupancyText = seatEligible
     ? buildRealtimeOccupancyText(realtimeItem, realtimePredictIndex)
     : buildRealtimeCongestionText(realtimeItem, realtimePredictIndex)
-  const occupancyTone = getOccupancyTone(realtimeItem, realtimePredictIndex)
+  const occupancyTone = getOccupancyTone(realtimeItem, realtimePredictIndex, seatEligible)
   const realtimeClockText = buildRealtimeClockText(
     realtimePredictIndex === 1 ? realtimeItem?.predictTime1 : realtimeItem?.predictTime2
   )
@@ -406,33 +406,36 @@ export default function TimetableView({ combined, sday, onChange, realtimeByStat
         className="relative min-w-0 overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
         aria-labelledby="integrated-history-title"
       >
-        <div className="absolute right-4 top-4 z-10 sm:right-6 sm:top-6">
-          <GlossarySheet />
-        </div>
         <div className="border-b border-border p-4 sm:p-6">
-          <div className="max-w-3xl pr-24 sm:pr-28">
+          <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-bold text-primary">여러 노선 · 하나의 시간축</p>
-            <h2 id="integrated-history-title" className="mt-1 text-2xl font-extrabold tracking-tight">
-              A → B 통합 시간이력
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              이 구간을 갈 수 있는 모든 노선의 과거 운행을 출발시각순으로 섞었습니다. 각 행에서 탑승과 목적지 하차 예상시각을 함께 확인하세요.
-            </p>
+            <div className="shrink-0">
+              <GlossarySheet />
+            </div>
           </div>
+          <h2 id="integrated-history-title" className="mt-1 text-2xl font-extrabold tracking-tight">
+            A → B 통합 시간이력
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            이 구간을 갈 수 있는 모든 노선의 과거 운행을 출발시각순으로 섞었습니다. 각 행에서 탑승과 목적지 하차 예상시각을 함께 확인하세요.
+          </p>
 
-          <div
-            className="mt-5 flex max-w-full items-center gap-2 overflow-x-auto overflow-y-hidden pb-1 [&_.text-\[11px\]]:!text-xs"
-            aria-label="노선 필터"
-          >
-            {nextEntry && (
+          {nextEntry && (
+            <div className="mt-5">
               <button
                 type="button"
                 onClick={scrollToHighlighted}
-                className="touch-target shrink-0 rounded-full border border-transparent bg-primary px-2.5 py-1 text-xs font-bold text-primary-foreground hover:bg-primary/90"
+                className="touch-target rounded-full border border-transparent bg-primary px-2.5 py-1 text-xs font-bold text-primary-foreground hover:bg-primary/90"
               >
                 현재 시각과 가까운 이력으로 이동
               </button>
-            )}
+            </div>
+          )}
+
+          <div
+            className={`flex max-w-full items-center gap-2 overflow-x-auto overflow-y-hidden pb-1 [&_.text-\[11px\]]:!text-xs ${nextEntry ? 'mt-2' : 'mt-5'}`}
+            aria-label="노선 필터"
+          >
             <button
               type="button"
               onClick={() => setSelectedRouteId(null)}
