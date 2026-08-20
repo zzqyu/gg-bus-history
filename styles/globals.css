@@ -1,6 +1,7 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
 
 html,
 body,
@@ -9,16 +10,40 @@ body,
 }
 
 body {
-  @apply bg-white text-slate-900;
+  @apply bg-background text-foreground;
 }
 
 /* Shared button styles for visual consistency */
 .btn-ui {
-  @apply rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 hover:bg-slate-50 sm:text-sm;
+  @apply rounded border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-accent hover:text-accent-foreground sm:text-sm;
 }
 
 .btn-ui-icon {
-  @apply inline-flex h-9 w-9 items-center justify-center rounded border border-slate-300 bg-white text-slate-800 hover:bg-slate-50;
+  @apply inline-flex h-9 w-9 items-center justify-center rounded border border-border bg-background text-foreground hover:bg-accent hover:text-accent-foreground;
+}
+
+/* Preserve compact visuals while providing a minimum 44px touch target. */
+.touch-target {
+  position: relative;
+}
+
+.touch-target::after {
+  content: "";
+  position: absolute;
+  inset: -10px;
+}
+
+/* iOS safe-area compensation for fixed controls and their content clearance. */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-area-bottom-fab {
+  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+}
+
+.safe-area-content-bottom {
+  padding-bottom: calc(4rem + env(safe-area-inset-bottom, 0px));
 }
 
 /* Prevent mobile browsers (esp. iOS) from auto-zooming inputs by ensuring
@@ -30,5 +55,243 @@ body {
   select,
   button {
     font-size: 16px;
+  }
+}
+
+/* 최소 폰트 크기 방침 (P2-T3, plans/ui-ux/DESIGN-TOKENS.md §5):
+   본문 텍스트는 text-xs(12px) 미만으로 내려가지 않는다. 전역 text-[80%] 축소
+   트릭은 제거했고, 12px 미만 임의값(text-[9.5px] 등)은 신규로 만들지 않는다. */
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* 도메인 토큰: 출발/도착/노선 */
+  --color-origin: var(--origin);
+  --color-origin-fill: var(--origin-fill);
+  --color-destination: var(--destination);
+  --color-destination-fill: var(--destination-fill);
+  --color-alight: var(--alight);
+  --color-route-line: var(--route-line);
+
+  /* 상태 배지 토큰 */
+  --color-badge-history-bg: var(--badge-history-bg);
+  --color-badge-history-fg: var(--badge-history-fg);
+  --color-badge-history-border: var(--badge-history-border);
+  --color-badge-realtime-bg: var(--badge-realtime-bg);
+  --color-badge-realtime-fg: var(--badge-realtime-fg);
+  --color-badge-realtime-border: var(--badge-realtime-border);
+  --color-badge-delayed-bg: var(--badge-delayed-bg);
+  --color-badge-delayed-fg: var(--badge-delayed-fg);
+  --color-badge-delayed-border: var(--badge-delayed-border);
+  --color-badge-inferred-bg: var(--badge-inferred-bg);
+  --color-badge-inferred-fg: var(--badge-inferred-fg);
+  --color-badge-inferred-border: var(--badge-inferred-border);
+  --color-badge-past-bg: var(--badge-past-bg);
+  --color-badge-past-fg: var(--badge-past-fg);
+  --color-badge-past-border: var(--badge-past-border);
+  --color-badge-unmapped-bg: var(--badge-unmapped-bg);
+  --color-badge-unmapped-fg: var(--badge-unmapped-fg);
+  --color-badge-unmapped-border: var(--badge-unmapped-border);
+
+  /* 노선 유형 토큰 */
+  --color-route-express: var(--route-express);
+  --color-route-seat: var(--route-seat);
+  --color-route-normal: var(--route-normal);
+  --color-route-village: var(--route-village);
+  --color-route-etc: var(--route-etc);
+  --color-route-unknown: var(--route-unknown);
+}
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+
+  /* 도메인 토큰: 출발/도착/노선 (light) */
+  --origin: #2563eb;
+  --origin-fill: #93c5fd;
+  --destination: #ef4444;
+  --destination-fill: #fca5a5;
+  --alight: #4f46e5;
+  --route-line: #4f46e5;
+
+  /* 상태 배지 토큰 (light) */
+  --badge-history-bg: transparent;
+  --badge-history-fg: #334155;
+  --badge-history-border: #cbd5e1;
+  --badge-realtime-bg: #eef2ff;
+  --badge-realtime-fg: #3730a3;
+  --badge-realtime-border: #c7d2fe;
+  --badge-delayed-bg: #fee2e2;
+  --badge-delayed-fg: #991b1b;
+  --badge-delayed-border: #fca5a5;
+  --badge-inferred-bg: #fef9c3;
+  --badge-inferred-fg: #92400e;
+  --badge-inferred-border: #fcd34d;
+  --badge-past-bg: #f3f4f6;
+  --badge-past-fg: #6b7280;
+  --badge-past-border: #d1d5db;
+  --badge-unmapped-bg: #fff7ed;
+  --badge-unmapped-fg: #9a3412;
+  --badge-unmapped-border: #fdba74;
+
+  /* 노선 유형 토큰 (light) — route-village는 원래 #ffc600에서
+     WCAG AA 대비(4.5:1) 확보를 위해 어둡게 조정함 */
+  --route-express: #e60012;
+  --route-seat: #0068b7;
+  --route-normal: #33cc99;
+  --route-village: #854d0e;
+  --route-etc: #bb2266;
+  --route-unknown: #6b7280;
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+
+  /* 도메인 토큰: 출발/도착/노선 (dark) */
+  --origin: #60a5fa;
+  --origin-fill: #1d4ed8;
+  --destination: #f87171;
+  --destination-fill: #b91c1c;
+  --alight: #818cf8;
+  --route-line: #818cf8;
+
+  /* 상태 배지 토큰 (dark) — light의 파스텔 배경은 어두운 화면에서 못 쓰므로
+     반투명 어두운 배경 + 밝은 전경으로 재구성 */
+  --badge-history-bg: rgba(51, 65, 85, 0.4);
+  --badge-history-fg: #cbd5e1;
+  --badge-history-border: #475569;
+  --badge-realtime-bg: rgba(49, 46, 129, 0.4);
+  --badge-realtime-fg: #c7d2fe;
+  --badge-realtime-border: #4338ca;
+  --badge-delayed-bg: rgba(127, 29, 29, 0.4);
+  --badge-delayed-fg: #fca5a5;
+  --badge-delayed-border: #b91c1c;
+  --badge-inferred-bg: rgba(120, 53, 15, 0.4);
+  --badge-inferred-fg: #fde68a;
+  --badge-inferred-border: #b45309;
+  --badge-past-bg: rgba(55, 65, 81, 0.4);
+  --badge-past-fg: #9ca3af;
+  --badge-past-border: #4b5563;
+  --badge-unmapped-bg: rgba(124, 45, 18, 0.4);
+  --badge-unmapped-fg: #fdba74;
+  --badge-unmapped-border: #c2410c;
+
+  /* 노선 유형 토큰 (dark) — 어두운 배경이므로 light보다 밝게 조정 */
+  --route-express: #ff5c5c;
+  --route-seat: #4da3ff;
+  --route-normal: #4ade80;
+  --route-village: #fbbf24;
+  --route-etc: #f472b6;
+  --route-unknown: #9ca3af;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
   }
 }
