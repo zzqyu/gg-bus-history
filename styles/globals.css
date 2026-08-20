@@ -48,12 +48,14 @@ body {
 
 /* Prevent mobile browsers (esp. iOS) from auto-zooming inputs by ensuring
    a minimum font-size on small screens. This avoids disabling zoom for
-   accessibility while preventing unwanted focus-zoom. */
+   accessibility while preventing unwanted focus-zoom. iOS only zooms on
+   focus for editable fields — `button`은 여기 포함하면 안 된다. 포함돼 있으면
+   480px 이하에서 모든 버튼(탭·배지 등)의 글자 크기가 16px로 강제돼, Tailwind로
+   지정한 더 작은 text-xs 등이 이 규칙에 밀려버리는 문제가 있었다. */
 @media (max-width: 480px) {
   input,
   textarea,
-  select,
-  button {
+  select {
     font-size: 16px;
   }
 }
