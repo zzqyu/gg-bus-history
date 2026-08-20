@@ -1,0 +1,11 @@
+[Unit]
+Description=bustal-time basedata.db daily refresh
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/gg-bus-history
+ExecStart=/root/gg-bus-history/tools/refresh_basedata.sh
+StandardOutput=journal
+StandardError=journal
