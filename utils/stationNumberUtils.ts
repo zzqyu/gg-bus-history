@@ -6,15 +6,6 @@ interface StationIndexSeed {
   distance: number
 }
 
-export function createEmptyStationNumberMaps(): StationNumberMaps {
-  return {
-    boardByStationId: {},
-    boardByStationName: {},
-    alightByStationId: {},
-    alightByStationName: {},
-  }
-}
-
 function normalizeText(v: unknown): string {
   return String(v || '').trim()
 }

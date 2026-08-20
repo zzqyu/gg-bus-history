@@ -15,20 +15,20 @@ export default function SearchResultsPanel({
   onSelect,
 }: SearchResultsPanelProps) {
   return (
-    <div className="min-h-[90px] rounded border border-slate-200 bg-white p-2">
+    <div className="min-h-[90px] rounded-lg border border-border bg-card p-2 text-card-foreground">
       <div className="mb-1.5 font-bold">{title}</div>
-      {message && <div className="mb-1.5 text-slate-600 text-sm">{message}</div>}
+      {message && <div className="mb-1.5 text-sm text-muted-foreground">{message}</div>}
       <ul className="m-0 max-h-[140px] overflow-auto pl-[18px]">
         {results.map((p, idx) => (
           <li key={idx} className="mb-1.5">
             <button
               type="button"
-              className="text-left text-sm hover:underline"
+              className="text-left text-sm text-primary hover:underline"
               onClick={() => onSelect(p)}
             >
               {p.place_name || p.address_name || '선택'}
             </button>
-            <div className="text-xs text-slate-600">
+            <div className="text-xs text-muted-foreground">
               {p.address_name || p.road_address_name || ''}
             </div>
           </li>

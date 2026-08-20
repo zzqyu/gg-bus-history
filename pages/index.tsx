@@ -1,5 +1,6 @@
 import Head from 'next/head'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import {
   SearchResult,
   GroupTimetableState,
@@ -10,6 +11,7 @@ import {
   KakaoPlace,
   TimetableEntry,
   StationNumberMaps,
+  RealtimeArrivalItem,
 } from '../types'
 import { getGroupKey, getGroupRouteBadges } from '../utils/routeUtils'
 import { getDateBounds, clampDateValue, getQuickDayValue, formatDisplayTime, formatDuration, getServiceDayNowMinutes } from '../utils/timeUtils'
@@ -18,11 +20,13 @@ import PlaceSearchInput from '../components/PlaceSearchInput'
 import SearchResultsPanel from '../components/SearchResultsPanel'
 import MapControls from '../components/MapControls'
 import PendingMapPointBar from '../components/PendingMapPointBar'
-import DateSelector from '../components/DateSelector'
-import ResultsSection from '../components/ResultsSection'
 import SharePreviewModal from '../components/SharePreviewModal'
-import Image from 'next/image'
 import { buildStationNumberMaps, getAlightStationNumber, getBoardStationNumber } from '../utils/stationNumberUtils'
+import ResultCard from '../components/result/ResultCard'
+import TimetableView from '../components/result/TimetableView'
+import DaySwitcher, { getDefaultSday } from '../components/result/DaySwitcher'
+import useRealtimeArrival from '../hooks/useRealtimeArrival'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../components/ui/collapsible'
 
 // Dev StrictMode(초기 마운트 이중 실행)에서도 동일 쿼리의 중복 호출을 막기 위한
 // 브라우저 전역 in-flight/cache 저장소
@@ -81,6 +85,12 @@ export default function Home() {
   const [locatingMap, setLocatingMap] = useState(false)
   const [mapReadyTick, setMapReadyTick] = useState(0)
   const [mobileMainView, setMobileMainView] = useState<'map' | 'results'>('map')
+  // P5-T2: 검색 전 화면에서 지도가 화면 전체를 채울 때, 헤더 높이만큼 지도 영역을 아래로
+  // 내리기 위해 헤더의 실제 높이를 잰다. 고정 숫자를 쓰지 않는 이유는 P5-T1에서 이미 겪은
+  // 문제(고정 숫자 49px가 툴바 줄바꿈 때문에 틀렸던 것) 때문이다.
+  const [appHeaderHeight, setAppHeaderHeight] = useState(0)
+  // 검색 전 하단 플로팅 패널에서 "지도에서 직접 조정"(반경 설정)을 펼쳤는지 여부
+  const [preSearchPanelOpen, setPreSearchPanelOpen] = useState(false)
   const [showScrollTop, setShowScrollTop] = useState(false)
   const [searchedHeaderStart, setSearchedHeaderStart] = useState('')
   const [searchedHeaderEnd, setSearchedHeaderEnd] = useState('')
@@ -104,6 +114,8 @@ export default function Home() {
   const groupTableScrollRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const routeBadgeRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const resultsSectionRef = useRef<HTMLDivElement>(null)
+  // 검색 실패 후 "다시 시도" 버튼이 같은 조건으로 재요청할 수 있도록 마지막 검색 옵션을 기억한다(B11).
+  const lastSearchOptsRef = useRef<Parameters<typeof doSearch>[0] | null>(null)
   const defaultMapCenter = { lon: 127.053749, lat: 37.289522 }
 
   const stationNumberMaps: StationNumberMaps = useMemo(
@@ -111,14 +123,30 @@ export default function Home() {
     [result, allGroupsSelectedRouteIds]
   )
 
-  function buildAllGroupsTimetableQueryString(): string {
+  const realtimeStationIds = useMemo(
+    () => Array.from(new Set((result?.groups || []).map((group) => String(group.board.stationId || '')).filter(Boolean))),
+    [result?.groups]
+  )
+  const realtimeByStationId = useRealtimeArrival(realtimeStationIds)
+  const realtimeByGroupKey = useMemo(() => {
+    const byGroupKey: Record<string, Record<string, RealtimeArrivalItem>> = {}
+    for (const group of result?.groups || []) {
+      byGroupKey[getGroupKey(group)] = realtimeByStationId[String(group.board.stationId || '')] || {}
+    }
+    return byGroupKey
+  }, [result?.groups, realtimeByStationId])
+
+  function buildAllGroupsTimetableQueryString(sdayOverride?: string): string {
     const params = new URLSearchParams({ ax, ay, bx, by, aradius: startRadius, bradius: endRadius })
-    if (sday) params.set('sday', sday)
+    const effectiveSday = sdayOverride ?? sday
+    if (effectiveSday) params.set('sday', effectiveSday)
     return params.toString()
   }
 
-  async function requestAllGroupsTimetableOnce(): Promise<any> {
-    const query = buildAllGroupsTimetableQueryString()
+  // sdayOverride: 기준일 전환 직후처럼 `sday` state가 아직 리렌더에 반영되지 않은 시점에
+  // 새 값으로 즉시 조회해야 할 때 쓴다(React state 업데이트는 비동기라 클로저의 `sday`가 낡을 수 있음).
+  async function requestAllGroupsTimetableOnce(sdayOverride?: string): Promise<any> {
+    const query = buildAllGroupsTimetableQueryString(sdayOverride)
     if (typeof window !== 'undefined') {
       const w = window as Window & { __allGroupsGlobalStore?: AllGroupsGlobalStore }
       if (!w.__allGroupsGlobalStore) w.__allGroupsGlobalStore = {}
@@ -393,7 +421,9 @@ export default function Home() {
       const path = Array.isArray(j?.path) ? j.path : []
       routeLinePathByRouteIdRef.current[cacheKey] = path
       return path
-    } catch {
+    } catch (err) {
+      // 지도 위 노선 폴리라인은 장식적 요소라 토스트로 방해하지 않는다 — 실패해도 로그만 남긴다(B10).
+      console.warn('[fetchRouteLinePath] 노선 경로를 불러오지 못했습니다:', err instanceof Error ? err.message : err)
       return []
     }
   }
@@ -646,7 +676,7 @@ export default function Home() {
 
   async function getCurrentLocationAndSet(type: 'start' | 'end') {
     if (!navigator.geolocation) {
-      alert('이 브라우저는 현재 위치 기능을 지원하지 않습니다.')
+      toast.error('이 브라우저는 현재 위치 기능을 지원하지 않습니다.')
       return
     }
     if (type === 'start') setLocatingStart(true)
@@ -680,7 +710,7 @@ export default function Home() {
       }
       resetTimetableViews()
     } catch {
-      alert('현재 위치를 가져오지 못했습니다. 위치 권한을 확인하세요.')
+      toast.error('현재 위치를 가져오지 못했습니다. 위치 권한을 확인하세요.')
     } finally {
       if (type === 'start') setLocatingStart(false)
       else setLocatingEnd(false)
@@ -689,7 +719,7 @@ export default function Home() {
 
   async function moveMapToCurrentLocation() {
     if (!navigator.geolocation) {
-      alert('이 브라우저는 현재 위치 기능을 지원하지 않습니다.')
+      toast.error('이 브라우저는 현재 위치 기능을 지원하지 않습니다.')
       return
     }
     setLocatingMap(true)
@@ -704,19 +734,36 @@ export default function Home() {
         mapRef.current.setLevel(4)
       }
     } catch {
-      alert('현재 위치를 가져오지 못했습니다. 위치 권한을 확인하세요.')
+      toast.error('현재 위치를 가져오지 못했습니다. 위치 권한을 확인하세요.')
     } finally {
       setLocatingMap(false)
     }
   }
 
-  function handleSdayChange(v: string) {
-    setSday(clampDateValue(v, dateBounds.min, dateBounds.max))
-    resetTimetableViews({ keepExpandedGroup: true })
-  }
-
-  function setQuickDay(daysAgo: number) {
-    handleSdayChange(getQuickDayValue(daysAgo, dateBounds))
+  // 기준일 전환(DaySwitcher/TimetableView의 DateBasisControl 공용). 화면 모드는 유지한 채
+  // 이력 캐시만 지우고 새 기준일로 즉시 재조회한다 — 예전 `resetTimetableViews`는 항상
+  // showGroupList 모드로 돌아갔는데, 결과/시간이력 화면 어디서든 날짜를 바꿀 수 있어야 하므로
+  // 화면 전환은 하지 않는다.
+  async function handleSdayChange(v: string) {
+    const next = clampDateValue(v, dateBounds.min, dateBounds.max)
+    if (next === sday) return
+    setSday(next)
+    setGroupTimetables({})
+    setGroupTimetableHidden({})
+    setGroupHighlightedRowIndexes({})
+    setAllGroupsHighlightedRowIndex(-1)
+    setAllGroupsSelectedRouteIds([])
+    prefetchPromiseRef.current = null
+    if (!result || result.loading || result.error) return
+    setAllGroupsTimetable({ loading: true })
+    try {
+      const j = await requestAllGroupsTimetableOnce(next)
+      setAllGroupsTimetable({ loading: false, data: j })
+    } catch (err) {
+      console.error('[handleSdayChange] 통합 시간이력 재조회 실패:', err instanceof Error ? err.message : err)
+      setAllGroupsTimetable({ loading: false, error: '통합 시간이력을 불러오지 못했습니다.' })
+      toast.error('기준일을 바꾸는 중 오류가 발생했습니다. 다시 시도해 주세요.')
+    }
   }
 
   function scrollToPageTop() {
@@ -870,20 +917,28 @@ export default function Home() {
       // 거리 계산 실패 시 기본 동작(검색 진행)
     }
     resetTimetableViews()
+    lastSearchOptsRef.current = opts
     const params = new URLSearchParams({
       ax: opts.ax, ay: opts.ay, bx: opts.bx, by: opts.by,
       aradius: opts.aradius || startRadius, bradius: opts.bradius || endRadius,
     })
     if (opts.sday) params.set('sday', opts.sday)
-    const r = await fetch('/api/findRoutes?' + params.toString())
-    const j = await r.json()
-    setShowAllGroupsTimetable(false)
-    setShowGroupList(true)
-    setAllGroupsSelectedRouteIds([])
-    setResult(j)
-    if (j && !j.error) {
-      setSearchedHeaderStart(compactHeaderPlaceText((opts.startLabel || `${opts.ay}, ${opts.ax}`).trim()))
-      setSearchedHeaderEnd(compactHeaderPlaceText((opts.endLabel || `${opts.by}, ${opts.bx}`).trim()))
+    try {
+      const r = await fetch('/api/findRoutes?' + params.toString())
+      const j = await r.json()
+      setShowAllGroupsTimetable(false)
+      setShowGroupList(true)
+      setAllGroupsSelectedRouteIds([])
+      setResult(j)
+      // 성공이든 API 에러(j.error)든 결과 탭으로 전환한다 — 실패 메시지를 지도 탭 뒤에 숨기지 않는다(B2/B11).
+      setMobileMainView('results')
+      if (j && !j.error) {
+        setSearchedHeaderStart(compactHeaderPlaceText((opts.startLabel || `${opts.ay}, ${opts.ax}`).trim()))
+        setSearchedHeaderEnd(compactHeaderPlaceText((opts.endLabel || `${opts.by}, ${opts.bx}`).trim()))
+      }
+    } catch (err) {
+      console.error('[doSearch] findRoutes 요청 실패:', err instanceof Error ? err.message : err)
+      setResult({ error: '검색에 실패했습니다. 네트워크 연결을 확인하고 다시 시도해 주세요.' })
       setMobileMainView('results')
     }
   }
@@ -925,15 +980,19 @@ export default function Home() {
       const j = await r.json()
       setGroupTimetables((p) => ({ ...p, [key]: { loading: false, data: j, selectedRouteId: routeId || null } }))
     } catch (err) {
-      setGroupTimetables((p) => ({ ...p, [key]: { loading: false, error: String(err), selectedRouteId: routeId || null } }))
+      console.error('[fetchGroupTimetable] 요청 실패:', err instanceof Error ? err.message : err)
+      setGroupTimetables((p) => ({ ...p, [key]: { loading: false, error: '노선별 시간표를 불러오지 못했습니다.', selectedRouteId: routeId || null } }))
+      toast.error('노선별 시간표를 불러오지 못했습니다. 다시 시도해 주세요.')
     }
   }
 
   async function fetchAllGroupsTimetable() {
     // Always reset route filter when the table is opened
     setAllGroupsSelectedRouteIds([])
-    // Already have data (or error) → just show it
-    if (allGroupsTimetable && !allGroupsTimetable.loading) {
+    // Already have data → just show it. (에러 상태는 여기서 걸러지지 않는다 — B11: "다시 시도"
+    // 버튼이 이 함수를 다시 불렀을 때 실제로 재요청되어야 하기 때문에, 에러였던 이전 상태는
+    // 캐시로 취급하지 않는다.)
+    if (allGroupsTimetable && !allGroupsTimetable.loading && allGroupsTimetable.data) {
       setShowAllGroupsTimetable(true)
       setShowGroupList(false)
       return
@@ -953,7 +1012,8 @@ export default function Home() {
       const j = await requestAllGroupsTimetableOnce()
       setAllGroupsTimetable({ loading: false, data: j })
     } catch (err) {
-      setAllGroupsTimetable({ loading: false, error: String(err) })
+      console.error('[fetchAllGroupsTimetable] 요청 실패:', err instanceof Error ? err.message : err)
+      setAllGroupsTimetable({ loading: false, error: '통합 시간이력을 불러오지 못했습니다.' })
     }
   }
 
@@ -982,7 +1042,10 @@ export default function Home() {
         const j = await requestAllGroupsTimetableOnce()
         setAllGroupsTimetable({ loading: false, data: j })
       } catch (err) {
-        setAllGroupsTimetable({ loading: false, error: String(err) })
+        // 백그라운드 프리페치라 토스트로 방해하지 않는다(B5) — 사용자가 나중에 "모든 결과 통합
+        // 시간이력" 버튼을 누르면 이 에러 상태가 뜨고 그때 재시도할 수 있다.
+        console.warn('[prefetchAllGroupsTimetable] 프리페치 실패:', err instanceof Error ? err.message : err)
+        setAllGroupsTimetable({ loading: false, error: '통합 시간이력을 불러오지 못했습니다.' })
       } finally {
         prefetchPromiseRef.current = null
       }
@@ -1100,9 +1163,39 @@ export default function Home() {
     }))
   }
 
-  function onGroupCardClick(e: React.MouseEvent, groupKey: string) {
-    const target = e.target as HTMLElement
-    if (target && target.closest && target.closest('button, a, input, select, textarea, label')) return
+  // 그룹별 시간표를 아직 명시적으로 안 열어봤어도(=groupTimetables에 캐시가 없어도), 검색 직후
+  // 자동 프리페치되는 allGroupsTimetable에서 이 그룹에 해당하는 항목만 걸러 카드에 바로 보여준다.
+  // (구 `ResultsSection.tsx`의 `getPrefetchedCombinedEntries`를 그대로 옮김)
+  function getPrefetchedCombinedEntries(g: Group): TimetableEntry[] {
+    const allCombinedEntries = allGroupsTimetable?.data?.combined || []
+    if (!allCombinedEntries.length) return []
+    const routeIdSet = new Set((g.routes || []).map((r) => String(r.routeId)))
+    const boardName = String(g.board.stationName || '').trim()
+    const alightName = String(g.alight.stationName || '').trim()
+    const walkToBoardSec = Number(g.walk?.startToBoard?.timeSec || 0)
+    const walkFromAlightSec = Number(g.walk?.alightToEnd?.timeSec || 0)
+    const walkTotalSec = Number(g.walk?.totalTimeSec || (walkToBoardSec + walkFromAlightSec))
+
+    return allCombinedEntries
+      .filter((entry) => {
+        const routeOk = routeIdSet.has(String(entry.routeId || ''))
+        const boardOk = String(entry.boardStationName || '').trim() === boardName
+        const alightOk = String(entry.alightStationName || '').trim() === alightName
+        return routeOk && boardOk && alightOk
+      })
+      .map((entry) => ({ ...entry, walkToBoardSec, walkFromAlightSec, walkTotalSec }))
+  }
+
+  // ResultCard에 넘길 최종 combined — 사용자가 노선을 선택해 명시적으로 불러온 데이터가 있으면
+  // 그걸 우선하고, 없으면 프리페치된 통합 이력에서 골라 쓴다.
+  function getEffectiveCombinedForGroup(g: Group): TimetableEntry[] {
+    const explicit = getCombinedForGroup(getGroupKey(g))
+    return explicit.length > 0 ? explicit : getPrefetchedCombinedEntries(g)
+  }
+
+  // ResultCard 내부의 버튼/링크는 전부 자체적으로 stopPropagation()을 호출하므로(RouteBadge,
+  // 도보경로 아이콘, 접힘 트리거), 여기서는 이벤트를 안 받아도 카드 배경 클릭만 잡힌다.
+  function onGroupCardClick(groupKey: string) {
     setShowAllGroupsTimetable(false)
     setShowGroupList(false)
     setExpandedGroupKey(groupKey)
@@ -1230,7 +1323,7 @@ export default function Home() {
     // If we already have prefetched all-groups data, build preview immediately.
     if (allGroupsTimetable && allGroupsTimetable.data) {
       const payload = buildSharePayload(clickedBaseTime)
-      if (!payload) { alert('공유 가능한 내용을 생성할 수 없습니다.'); return }
+      if (!payload) { toast.error('공유 가능한 내용을 생성할 수 없습니다.'); return }
       setSharePreviewText(payload.text)
       setSharePreviewTitle(payload.title)
       setSharePreviewLoading(false)
@@ -1303,7 +1396,7 @@ export default function Home() {
       const baseTime = normalizeBaseTime(shareBaseTime)
       const payload = buildSharePayload(baseTime)
       if (!payload) {
-        alert('공유 가능한 내용을 생성할 수 없습니다.')
+        toast.error('공유 가능한 내용을 생성할 수 없습니다.')
         return
       }
       const Kakao = await ensureKakaoSdk()
@@ -1447,7 +1540,7 @@ export default function Home() {
       }
       setSharePreviewOpen(false)
     } catch {
-      alert('카카오톡 공유에 실패했습니다. 환경변수와 도메인 등록을 확인하세요.')
+      toast.error('카카오톡 공유에 실패했습니다. 환경변수와 도메인 등록을 확인하세요.')
     }
   }
 
@@ -1534,7 +1627,9 @@ export default function Home() {
     setDateBounds(bounds)
     setSday((prev) => {
       if (prev) return clampDateValue(prev, bounds.min, bounds.max)
-      return bounds.max
+      // 기본 기준일 = 지난주 같은 요일(사용자 결정, plans/ui-ux/artifacts/PREVIEW-RESEARCH-COMPARISON.md
+      // "최종 결정" 절 참고). 평일/주말 배차 패턴이 다르므로 "어제"보다 대표성이 높다.
+      return getDefaultSday()
     })
   }, [])
 
@@ -1822,10 +1917,10 @@ export default function Home() {
           startLabel: qsk,
           endLabel: qek,
         }
-        setTimeout(() => { doSearch(opts).catch(() => {}) }, 50)
+        setTimeout(() => { doSearch(opts).catch((err) => console.error('[deep-link] 자동 검색 실패:', err instanceof Error ? err.message : err)) }, 50)
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn('[deep-link] URL 파라미터 파싱 실패:', err instanceof Error ? err.message : err)
     }
   }, [])
 
@@ -1834,30 +1929,138 @@ export default function Home() {
   const showStartSearchPanel = startSearchOpened
   const showEndSearchPanel = endSearchOpened
   const showSearchPanels = showStartSearchPanel || showEndSearchPanel
-  const quickDay1 = getQuickDayValue(1, dateBounds)
-  const quickDay2 = getQuickDayValue(2, dateBounds)
-  const quickDay7 = getQuickDayValue(7, dateBounds)
   const focusedCardOnly = !!expandedGroupKey && !showGroupList && !showAllGroupsTimetable
   const hasSearchResult = !!result && !result.loading && !result.error
   const hasAnyResultState = result != null
+  // P6-T1: 검색 전이거나, 모바일에서 "지도/검색" 탭을 보고 있을 때는 지도 전체화면+하단
+  // 플로팅 패널 스타일(P5-T2)을 쓴다. 데스크톱은 탭 전환이 없어서(mobileMainView가 안 바뀜)
+  // 검색 후엔 항상 false로 유지되고 기존 카드형 레이아웃 그대로 나온다.
+  const isMapFirstMode = !hasAnyResultState || (mobileMainView === 'map' && !focusedCardOnly)
+
+  // 헤더 + (있다면) 모바일 탭 바까지 합친 실제 높이를 재서 지도 영역의 top 값으로 쓴다.
+  // 탭 바는 hasAnyResultState일 때만 렌더되고 데스크톱(md 이상)에서는 md:hidden으로 숨는다.
+  useEffect(() => {
+    function updateHeaderHeight() {
+      const header = document.getElementById('app-header')
+      const tabBar = document.getElementById('mobile-view-tabs')
+      const headerBottom = header ? header.getBoundingClientRect().bottom : 0
+      const tabBarBottom = tabBar && tabBar.offsetParent !== null ? tabBar.getBoundingClientRect().bottom : 0
+      setAppHeaderHeight(Math.max(headerBottom, tabBarBottom))
+    }
+    updateHeaderHeight()
+    window.addEventListener('resize', updateHeaderHeight)
+    return () => window.removeEventListener('resize', updateHeaderHeight)
+  }, [hasAnyResultState, mobileMainView])
+
+  // 검색 전 ↔ 검색 후 전환 시 지도 컨테이너 크기가 크게 바뀐다(화면 전체 ↔ 360px 카드).
+  // 카카오 지도는 컨테이너 크기가 바뀌면 relayout()을 호출해줘야 타일이 깨지지 않는다.
+  // hasAnyResultState가 이 줄 위에서 막 선언됐으므로 여기서는 안전하게 참조할 수 있다.
+  useEffect(() => {
+    const kakao = (window as any).kakao
+    if (!mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
+    const t = setTimeout(() => {
+      try {
+        if (typeof mapRef.current.relayout === 'function') mapRef.current.relayout()
+        kakao.maps.event.trigger(mapRef.current, 'resize')
+        focusStartEndOnMap()
+      } catch {
+        // ignore map resize errors
+      }
+    }, 200)
+    return () => clearTimeout(t)
+  }, [hasAnyResultState])
+
   const headerStartText = searchedHeaderStart
   const headerEndText = searchedHeaderEnd
-  const uiBlockingLoading = !!(result && result.loading) || !!(allGroupsTimetable && allGroupsTimetable.loading)
+  // B5: 검색 직후 백그라운드로 자동 프리페치되는 allGroupsTimetable은 전체화면을 막지 않는다.
+  // 사용자가 "모든 결과 통합 시간이력"을 명시적으로 열었을 때(showAllGroupsTimetable)만 블로킹한다.
+  const uiBlockingLoading = !!(result && result.loading) || !!(showAllGroupsTimetable && allGroupsTimetable && allGroupsTimetable.loading)
+
+  // 카드 정렬 — 도착(하차+도보) 시각 기준, 자정 넘김(+1440분) 정규화. 구 `ResultsSection.tsx`의
+  // `getBestArrivalScoreMinutes`를 그대로 옮겼다.
+  function getBestArrivalScoreMinutes(g: Group): number {
+    const sourceEntries = getEffectiveCombinedForGroup(g)
+    if (!sourceEntries.length) return Number.POSITIVE_INFINITY
+    const walkStartMin = Math.max(0, Math.round(Number(g.walk?.startToBoard?.timeSec || 0) / 60))
+    const walkEndMin = Math.max(0, Math.round(Number(g.walk?.alightToEnd?.timeSec || 0) / 60))
+    const earliestBoard = getServiceDayNowMinutes(new Date()) + walkStartMin
+
+    const candidates = sourceEntries
+      .map((entry) => {
+        const boardText = formatDisplayTime(entry.boardTime, sday)
+        const alightText = formatDisplayTime(entry.alightTime, sday)
+        const bm = String(boardText).match(/^(\d+):(\d{2})$/)
+        const am = String(alightText).match(/^(\d+):(\d{2})$/)
+        if (!bm || !am) return null
+        const boardMin = Number(bm[1]) * 60 + Number(bm[2])
+        const alightMin = Number(am[1]) * 60 + Number(am[2])
+        if (alightMin < boardMin) return null
+        return { boardMin, arrivalMin: alightMin + walkEndMin }
+      })
+      .filter((v): v is NonNullable<typeof v> => !!v)
+    if (!candidates.length) return Number.POSITIVE_INFINITY
+
+    const normalized = candidates.map((x) => {
+      let board = x.boardMin
+      let arrival = x.arrivalMin
+      while (board < earliestBoard) {
+        board += 1440
+        arrival += 1440
+      }
+      return arrival
+    })
+    return Math.min(...normalized)
+  }
+
+  const sortedGroups = useMemo(() => {
+    const groups = result?.groups || []
+    return groups
+      .map((g, originalIdx) => ({ g, originalIdx, score: getBestArrivalScoreMinutes(g) }))
+      .sort((a, b) => (a.score !== b.score ? a.score - b.score : a.originalIdx - b.originalIdx))
+      .map((item, sortedIdx) => ({ ...item, sortedIdx }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, groupTimetables, allGroupsTimetable, sday])
+
+  const visibleGroups = focusedCardOnly
+    ? sortedGroups.filter(({ g }) => getGroupKey(g) === expandedGroupKey)
+    : sortedGroups
+
+  // P5-T2/P6-T1: 검색 전이거나 모바일에서 지도/검색 탭을 볼 때(isMapFirstMode)에 따라
+  // 지도·검색폼 영역의 className이 크게 달라진다. JSX 안에서 삼항 연산자를 여러 겹 쓰면
+  // 실수하기 쉬워서, 미리 변수로 계산해둔다.
+  const mapSectionClassName = !isMapFirstMode
+    ? `mb-3 w-full space-y-3 ${(mobileMainView === 'results' && !focusedCardOnly) ? 'hidden md:block' : ''}`
+    : 'fixed inset-x-0 bottom-0 z-0 overflow-hidden bg-muted'
+  const mapSectionStyle = !isMapFirstMode ? undefined : { top: appHeaderHeight }
+  const searchPanelOuterClassName = !isMapFirstMode
+    ? ''
+    : 'safe-area-bottom absolute inset-x-0 bottom-0 z-10 sm:flex sm:justify-center sm:p-4'
+  const searchPanelInnerClassName = !isMapFirstMode
+    ? 'rounded-2xl border border-border bg-card p-4 text-card-foreground shadow-sm sm:p-5'
+    : 'w-full rounded-t-3xl border border-border bg-card p-4 shadow-2xl sm:max-w-[480px] sm:rounded-3xl'
+  const mapCardOuterClassName = !isMapFirstMode
+    ? 'overflow-hidden rounded-2xl border border-border bg-card shadow-sm'
+    : 'absolute inset-0 -z-10'
+  const mapDivClassName = !isMapFirstMode ? 'w-full' : 'h-full w-full'
+  const mapDivStyle = !isMapFirstMode ? { height: 360 } : undefined
 
   // ─── Render ────────────────────────────────────────────────────────
 
   return (
-    <div className="font-sans text-[80%] text-slate-900 sm:text-[100%]">
+    <div className="font-sans text-slate-900">
       <Head>
         <title>버스탈시간-경기도 버스 시간 이력 조회 서비스</title>
       </Head>
 
-      <div className="sticky top-0 z-10 w-full bg-white border-b border-slate-200">
+      <div id="app-header" className="sticky top-0 z-10 w-full bg-white border-b border-slate-200">
         <div className="mx-auto w-full max-w-[1200px] px-5 py-2 flex items-start justify-between">
           <div>
-            <div className={hasSearchResult ? 'flex items-end gap-2' : ''}>
-              <h1 className="text-xl font-bold">버스탈시간</h1>
-              <h3 className="text-m font-semibold">경기도 버스 시간 이력 조회 서비스</h3>
+            {/* P4-T5 최종검증에서 발견: CJK 헤더가 단어 중간에서 줄바꿈되는 문제(Phase 2에서
+                이미 발견해 P2-TYPO-BREAKAGE.md에 기록해뒀으나 Phase 3/4 어디서도 실제로 고치지
+                않고 있었다). break-keep + 좁은 화면에서는 세로로 쌓기로 수정 */}
+            <div className={hasSearchResult ? 'flex flex-col gap-0.5 sm:flex-row sm:items-end sm:gap-2' : ''}>
+              <h1 className="break-keep text-xl font-bold">버스탈시간</h1>
+              <h3 className="break-keep text-m font-semibold">경기도 버스 시간 이력 조회 서비스</h3>
             </div>
             {hasSearchResult && (headerStartText || headerEndText) && (
               <p className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-medium text-slate-600 sm:text-sm">
@@ -1867,6 +2070,12 @@ export default function Home() {
               </p>
             )}
           </div>
+          <div className="flex shrink-0 items-center gap-2">
+          {hasSearchResult && (
+            <button type="button" onClick={handleShare} title="검색 결과 공유" aria-label="검색 결과 공유" className="btn-ui h-8 px-3">
+              공유
+            </button>
+          )}
           {!isStandalone && (deferredInstallPrompt || isIos) && (
             <div className="relative flex items-center">
               <button
@@ -1902,227 +2111,405 @@ export default function Home() {
               )}
             </div>
           )}
+          </div>
         </div>
       </div>
       <div className="p-4 sm:p-5">
       <div className="mx-auto w-full max-w-[1200px]">
 
-      {hasAnyResultState && (
-        <div className="mb-3 flex md:hidden">
-          <div className="grid w-full grid-cols-2 rounded-lg border border-slate-300 bg-white p-1">
-            <button
-              type="button"
-              onClick={() => {
-                setMobileMainView('map')
-                if (focusedCardOnly) {
-                  setShowGroupList(true)
-                  setShowAllGroupsTimetable(false)
-                }
-              }}
-              className="rounded px-2 py-1.5 text-xs font-semibold"
-              style={mobileMainView === 'map' ? { background: '#0f172a', color: '#fff' } : { color: '#334155' }}
-            >
-              지도/검색
-            </button>
-            <button
-              type="button"
-              onClick={() => setMobileMainView('results')}
-              className="rounded px-2 py-1.5 text-xs font-semibold"
-              style={mobileMainView === 'results' ? { background: '#0f172a', color: '#fff' } : { color: '#334155' }}
-            >
-              결과
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Map section */}
-      <div className={`mb-3 w-full rounded-lg border border-slate-300 p-2 sm:p-3 ${(mobileMainView === 'results' && !focusedCardOnly) ? 'hidden md:block' : ''}`}>
-        {!focusedCardOnly && (
-          <>
-            {/* Place search inputs */}
-            <div className="mb-2 p-0 sm:rounded-md sm:border sm:border-slate-200 sm:bg-white sm:p-2">
-              <div className="mb-1.5 flex items-center gap-2 sm:mb-2">
-                <strong className="text-xs sm:text-sm">출발/도착지 설정</strong>
-                <span className="text-[11px] text-slate-600">(검색 또는 지도 핀)</span>
-              </div>
-              <div className="flex items-stretch">
-              <button
-                className="w-10 shrink-0 rounded border border-slate-300 text-lg hover:bg-slate-50"
-                type="button"
-                onClick={swapStartEndPoints}
-                aria-label="출발지와 도착지 교체"
-                title="출발지와 도착지 교체"
-              >
-                ⇅
-              </button>
-              <div className="flex min-w-0 flex-1 flex-col gap-2">
-                <PlaceSearchInput
-                  value={startKeyword}
-                  onChange={setStartKeyword}
-                  onSearch={() => searchPlace('start')}
-                  onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'start')}
-                  onLocate={() => getCurrentLocationAndSet('start')}
-                  locating={locatingStart}
-                  placeholder="출발지/주소 검색"
-                />
-                <PlaceSearchInput
-                  value={endKeyword}
-                  onChange={setEndKeyword}
-                  onSearch={() => searchPlace('end')}
-                  onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'end')}
-                  onLocate={() => getCurrentLocationAndSet('end')}
-                  locating={locatingEnd}
-                  placeholder="도착지/주소 검색"
-                />
-              </div>
-              </div>
+      {/* Map section — P5-T2: 검색 전엔 지도가 화면을 채우고 검색폼이 하단에 뜨는 형태,
+          검색 후엔 P4-T7의 카드형 레이아웃 그대로. mapContainerRef의 div는 이 블록 안에서
+          항상 같은 자리(마지막 자식)에 있다 — className/style만 조건부로 바뀐다. 절대로
+          이 블록을 검색 전/후 두 개의 서로 다른 JSX로 나누지 말 것(지도 리마운트로 파괴됨). */}
+      <div className={mapSectionClassName} style={mapSectionStyle}>
+        {/* 지도/검색 탭에서 지도 위에 떠 있는 안내 배너 */}
+        {isMapFirstMode && (
+          <div className="pointer-events-none absolute left-0 right-0 top-0 z-10 p-3 sm:p-4">
+            <div className="pointer-events-auto relative z-10 mx-auto max-w-[480px] rounded-2xl border border-badge-realtime-border bg-badge-realtime-bg/95 p-3 text-badge-realtime-fg shadow-lg backdrop-blur-sm">
+              <p className="text-xs font-bold leading-5">
+                버스 길찾기 경로 모든 노선의 통합 운행 이력 + 하차 예상시각까지, 아래에서 바로 검색하세요
+              </p>
             </div>
-
-            {/* Search result panels */}
-            {showSearchPanels && (
-              <div className="w-full mb-2 grid grid-cols-1 gap-3">
-                {showStartSearchPanel && (
-                  <SearchResultsPanel
-                    title="출발지 검색결과"
-                    message={startSearchMsg}
-                    results={startSearchResults}
-                    onSelect={(p) => selectPlace('start', p)}
-                  />
-                )}
-                {showEndSearchPanel && (
-                  <SearchResultsPanel
-                    title="도착지 검색결과"
-                    message={endSearchMsg}
-                    results={endSearchResults}
-                    onSelect={(p) => selectPlace('end', p)}
-                  />
-                )}
-              </div>
-            )}
-
-            {/* Map controls */}
-            <MapControls
-              startRadius={startRadius}
-              endRadius={endRadius}
-              onStartRadiusChange={handleStartRadiusChange}
-              onEndRadiusChange={handleEndRadiusChange}
-              onFocusStartEnd={focusStartEndOnMap}
-              onMoveToCurrentLocation={moveMapToCurrentLocation}
-              locatingMap={locatingMap}
-            />
-
-            {/* Pending map point */}
-            {pendingMapPoint && (
-              <PendingMapPointBar
-                point={pendingMapPoint}
-                onSetStart={() => applyPendingMapPoint('start')}
-                onSetEnd={() => applyPendingMapPoint('end')}
-                onClear={() => setPendingMapPoint(null)}
-              />
-            )}
-
-            {/* Map error */}
-            {mapError && <div className="mb-2 text-red-600">{mapError}</div>}
-          </>
+          </div>
         )}
 
-        {/* Kakao map container */}
-        <div
-          ref={mapContainerRef}
-          className="w-full rounded"
-          style={{ height: 360, border: '1px solid #ddd' }}
-        />
+        {!focusedCardOnly && (
+          <div className={searchPanelOuterClassName}>
+            <div className={searchPanelInnerClassName}>
+              {isMapFirstMode && (
+                <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-muted-foreground/30 sm:hidden" aria-hidden="true" />
+              )}
+              {!isMapFirstMode && (
+                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-primary">검색 조건</p>
+                    <h1 className="mt-1 text-lg font-bold tracking-tight sm:text-xl">출발지와 도착지를 정해 버스를 찾아보세요</h1>
+                  </div>
+                  <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground">검색 또는 지도 핀</span>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                {/* Step 1: 출발/도착 입력 — 검색 전/후 항상 노출 */}
+                <div className={!isMapFirstMode ? 'rounded-xl border border-border bg-background p-3 sm:p-4' : ''}>
+                  {!isMapFirstMode && (
+                    <div className="mb-3 flex items-start gap-3">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">1</span>
+                      <div>
+                        <h2 className="text-sm font-bold text-foreground sm:text-base">출발·도착 입력</h2>
+                        <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">장소 이름이나 주소를 검색하세요.</p>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex items-stretch gap-2">
+                    <button
+                      className="w-10 shrink-0 self-stretch rounded-lg border border-border text-lg hover:bg-accent"
+                      type="button"
+                      onClick={swapStartEndPoints}
+                      aria-label="출발지와 도착지 교체"
+                      title="출발지와 도착지 교체"
+                    >
+                      ⇅
+                    </button>
+                    <div className="flex min-w-0 flex-1 flex-col gap-2">
+                      <PlaceSearchInput
+                        value={startKeyword}
+                        onChange={setStartKeyword}
+                        onSearch={() => searchPlace('start')}
+                        onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'start')}
+                        onLocate={() => getCurrentLocationAndSet('start')}
+                        locating={locatingStart}
+                        placeholder="출발지/주소 검색"
+                      />
+                      <PlaceSearchInput
+                        value={endKeyword}
+                        onChange={setEndKeyword}
+                        onSearch={() => searchPlace('end')}
+                        onKeyDown={(e) => handlePlaceKeywordKeyDown(e, 'end')}
+                        onLocate={() => getCurrentLocationAndSet('end')}
+                        locating={locatingEnd}
+                        placeholder="도착지/주소 검색"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Search result panels — 그대로 */}
+                {showSearchPanels && (
+                  <div className="w-full grid grid-cols-1 gap-3">
+                    {showStartSearchPanel && (
+                      <SearchResultsPanel
+                        title="출발지 검색결과"
+                        message={startSearchMsg}
+                        results={startSearchResults}
+                        onSelect={(p) => selectPlace('start', p)}
+                      />
+                    )}
+                    {showEndSearchPanel && (
+                      <SearchResultsPanel
+                        title="도착지 검색결과"
+                        message={endSearchMsg}
+                        results={endSearchResults}
+                        onSelect={(p) => selectPlace('end', p)}
+                      />
+                    )}
+                  </div>
+                )}
+
+                {/* Step 2: 지도에서 직접 조정 — 검색 후엔 항상 펼침, 검색 전엔 접혔다 펼치는 형태 */}
+                <Collapsible open={!isMapFirstMode ? true : preSearchPanelOpen} onOpenChange={setPreSearchPanelOpen}>
+                  {isMapFirstMode && (
+                    <CollapsibleTrigger asChild>
+                      <button
+                        type="button"
+                        className="touch-target flex min-h-9 w-full items-center justify-center gap-1 text-xs font-semibold text-muted-foreground"
+                      >
+                        {preSearchPanelOpen ? '반경 설정 접기' : '반경 설정 펼치기'}
+                        <span aria-hidden="true" className={`transition-transform ${preSearchPanelOpen ? 'rotate-180' : ''}`}>⌄</span>
+                      </button>
+                    </CollapsibleTrigger>
+                  )}
+                  <CollapsibleContent>
+                    <div className={!isMapFirstMode ? 'rounded-xl border border-border bg-background p-3 sm:p-4' : 'pt-2'}>
+                      {!isMapFirstMode && (
+                        <div className="mb-3 flex items-start gap-3">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">2</span>
+                          <div>
+                            <h2 className="text-sm font-bold text-foreground sm:text-base">지도에서 직접 조정</h2>
+                            <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">핀을 드래그하거나 지도를 눌러 지점과 반경을 확인하세요.</p>
+                          </div>
+                        </div>
+                      )}
+
+                      <MapControls
+                        startRadius={startRadius}
+                        endRadius={endRadius}
+                        onStartRadiusChange={handleStartRadiusChange}
+                        onEndRadiusChange={handleEndRadiusChange}
+                        onFocusStartEnd={focusStartEndOnMap}
+                        onMoveToCurrentLocation={moveMapToCurrentLocation}
+                        locatingMap={locatingMap}
+                      />
+
+                      {pendingMapPoint && (
+                        <PendingMapPointBar
+                          point={pendingMapPoint}
+                          onSetStart={() => applyPendingMapPoint('start')}
+                          onSetEnd={() => applyPendingMapPoint('end')}
+                          onClear={() => setPendingMapPoint(null)}
+                        />
+                      )}
+
+                      {mapError && <div className="mb-2 text-sm text-destructive">{mapError}</div>}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+
+              {/* 지도/검색 탭 전용 검색 버튼 — 검색 후에도 지도 우선 화면에서 경로를 다시 찾을 수 있다 */}
+              {isMapFirstMode && (
+                <form onSubmit={submit} className="mt-3">
+                  <button
+                    type="submit"
+                    disabled={uiBlockingLoading}
+                    className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary text-base font-bold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {result?.loading && (
+                      <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+                        <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                    )}
+                    경로 찾기
+                  </button>
+                </form>
+              )}
+
+              {/* "재검색" 버튼으로 여기 들어온 경우, 다시 검색하지 않고도 이전 결과로 돌아갈 수
+                  있는 길을 남겨둔다(안 그러면 결과 화면으로 돌아갈 방법이 없어짐). */}
+              {isMapFirstMode && hasAnyResultState && (
+                <button
+                  type="button"
+                  onClick={() => setMobileMainView('results')}
+                  className="touch-target mt-2 flex min-h-9 w-full items-center justify-center text-xs font-semibold text-muted-foreground md:hidden"
+                >
+                  검색 결과 다시 보기
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 지도 카드 — 항상 같은 위치(이 블록의 마지막 자식)에서 렌더링돼야 mapContainerRef에
+            연결된 Kakao 지도 인스턴스가 검색 전/후 전환이나 focusedCardOnly 토글 시에도
+            리마운트되지 않는다(파괴 방지). className/style만 바뀐다. */}
+        <div className={mapCardOuterClassName}>
+          <div ref={mapContainerRef} className={mapDivClassName} style={mapDivStyle} />
+          {!isMapFirstMode && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground sm:px-4">
+              <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-origin" aria-hidden="true" />출발</span>
+              <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-destination" aria-hidden="true" />도착</span>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Search form */}
-      {!focusedCardOnly && (
-        <form onSubmit={submit} className="w-full mt-4 px-0">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3">
-            <div className="min-w-0 flex-1">
-              <DateSelector
-                sday={sday}
-                dateBounds={dateBounds}
-                quickDay1={quickDay1}
-                quickDay2={quickDay2}
-                quickDay7={quickDay7}
-                onSdayChange={handleSdayChange}
-                onQuickDay={setQuickDay}
-              />
+      {/* Search form — 날짜는 여기서 안 묻는다(P3-T15 결정). 기본은 지난주 같은 요일이고,
+          검색 후 결과/시간이력 화면의 DaySwitcher에서 바꿀 수 있다. 데스크톱 결과 화면에서만
+          다시 검색 버튼을 보여준다. */}
+      {!focusedCardOnly && hasAnyResultState && (
+        <form onSubmit={submit} className="mt-4 hidden w-full justify-end md:flex">
+          <button
+            type="submit"
+            disabled={uiBlockingLoading}
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary text-base font-bold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70 sm:w-[180px]"
+          >
+            {result?.loading && (
+              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+                <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            )}
+            검색
+          </button>
+        </form>
+      )}
+
+      {/* Results — P4-T1: 구 ResultsSection/GroupCard/GroupTimetable/AllGroupsTimetable을
+          ResultCard/TimetableView/DaySwitcher(components/result/*)로 교체 */}
+      {result != null && (
+        <div ref={resultsSectionRef} className={mobileMainView === 'map' ? 'hidden md:block' : ''}>
+          {result.loading && <div className="mt-5">검색 중...</div>}
+          {result.error && (
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+              <span className="text-red-600">{result.error}</span>
+              {lastSearchOptsRef.current && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (lastSearchOptsRef.current) doSearch(lastSearchOptsRef.current)
+                  }}
+                  className="touch-target rounded border border-slate-300 bg-white px-3 py-1 text-sm font-semibold hover:bg-slate-50"
+                >
+                  다시 시도
+                </button>
+              )}
             </div>
-            <div className="flex justify-end sm:justify-start">
-              <button
-                type="submit"
-                disabled={uiBlockingLoading}
-                className="inline-flex h-10 sm:h-11 w-[170px] sm:w-[180px] items-center justify-center gap-2 rounded bg-slate-900 text-sm sm:text-base font-bold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-70"
-              >
-                {result?.loading && (
+          )}
+          {hasSearchResult && (
+            <div className={`mt-5 ${(showAllGroupsTimetable && !showGroupList) || focusedCardOnly ? 'safe-area-content-bottom' : ''}`}>
+              {!focusedCardOnly && (
+                <>
+                  <div className="mb-3">
+                    <DaySwitcher value={sday} onChange={handleSdayChange} />
+                  </div>
+
+                  <div className="mb-3 grid w-full grid-cols-2 rounded-xl border border-border bg-card p-1" aria-label="결과 화면 전환">
+                    <button
+                      type="button"
+                      aria-pressed={!showAllGroupsTimetable}
+                      onClick={() => {
+                        setShowGroupList(true)
+                        setShowAllGroupsTimetable(false)
+                        if (expandedGroupKey) setGroupTimetables((p) => {
+                          const prev = p[expandedGroupKey]
+                          return prev ? { ...p, [expandedGroupKey]: { ...prev, selectedRouteId: null } } : p
+                        })
+                      }}
+                      className={`touch-target min-h-9 rounded-lg px-2 py-1.5 text-xs font-bold transition ${!showAllGroupsTimetable ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted'}`}
+                    >
+                      결과 카드
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={showAllGroupsTimetable}
+                      onClick={fetchAllGroupsTimetableAndFocus}
+                      disabled={!!allGroupsTimetable?.loading}
+                      className={`touch-target min-h-9 rounded-lg px-2 py-1.5 text-xs font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ${showAllGroupsTimetable ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted'}`}
+                    >
+                      {!!allGroupsTimetable?.loading && (
+                        <svg className="mr-1 inline-block h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                          <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+                          <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        </svg>
+                      )}
+                      통합 시간이력
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* 통합 시간이력 — DaySwitcher와 동일한 기준일 전환 계약을 자체적으로 내장하고 있다 */}
+              {showAllGroupsTimetable && (
+                allGroupsTimetable?.loading ? (
+                  <div className="flex items-center justify-center gap-2 rounded-2xl border border-border bg-card p-6 text-sm font-semibold text-muted-foreground">
+                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+                      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                    시간이력을 불러오는 중...
+                  </div>
+                ) : allGroupsTimetable?.error ? (
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-4">
+                    <span className="text-red-600">{allGroupsTimetable.error}</span>
+                    <button
+                      type="button"
+                      onClick={fetchAllGroupsTimetableAndFocus}
+                      className="touch-target rounded border border-red-300 bg-white px-3 py-1 text-sm font-semibold text-red-700 hover:bg-red-100"
+                    >
+                      다시 시도
+                    </button>
+                  </div>
+                ) : (
+                  <TimetableView
+                    combined={allGroupsTimetable?.data?.combined || []}
+                    sday={sday}
+                    onChange={handleSdayChange}
+                    realtimeByStationId={realtimeByStationId}
+                    hideDateBasisControl
+                  />
+                )
+              )}
+
+              {/* 결과 카드 화면에서도 카드별 이력(하차 예상 등)은 백그라운드 프리페치되는
+                  allGroupsTimetable에서 채워진다 — 검색 직후나 기준일 변경 직후처럼 그게 아직
+                  로딩 중일 때는 카드가 빈 값("-")으로 잠깐 보이므로, 로딩 중임을 알려준다. */}
+              {!focusedCardOnly && !showAllGroupsTimetable && !!allGroupsTimetable?.loading && (
+                <div className="mb-3 flex items-center justify-center gap-2 rounded-lg border border-border bg-card p-3 text-sm font-semibold text-muted-foreground">
                   <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
                     <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                   </svg>
-                )}
-                검색
-              </button>
-            </div>
-          </div>
-        </form>
-      )}
+                  시간이력을 불러오는 중...
+                </div>
+              )}
 
-      {/* Results */}
-      {result != null && (
-        <div ref={resultsSectionRef} className={mobileMainView === 'map' ? 'hidden md:block' : ''}>
-          <ResultsSection
-            result={result}
-            sday={sday}
-            stationNumberMaps={stationNumberMaps}
-            groupTimetables={groupTimetables}
-            allGroupsTimetable={allGroupsTimetable}
-            showAllGroupsTimetable={showAllGroupsTimetable}
-            showGroupList={showGroupList}
-            groupTimetableHidden={groupTimetableHidden}
-            allGroupsHighlightedRowIndex={allGroupsHighlightedRowIndex}
-            groupHighlightedRowIndexes={groupHighlightedRowIndexes}
-            allGroupsSelectedRouteIds={allGroupsSelectedRouteIds}
-            expandedGroupKey={expandedGroupKey}
-            allGroupsTableScrollRef={allGroupsTableScrollRef}
-            groupTableScrollRefs={groupTableScrollRefs}
-            routeBadgeRowRefs={routeBadgeRowRefs}
-            onShare={handleShare}
-            onFetchAllGroupsTimetable={fetchAllGroupsTimetableAndFocus}
-            onSelectAllGroupsRoutes={setAllGroupsSelectedRouteIds}
-            onMoveAllGroupsToCurrentTime={moveAllGroupsToCurrentTime}
-            onFoldAllGroupsTimetable={() => {
-              setShowAllGroupsTimetable(false)
-              setShowGroupList(true)
-              // Reset expanded group filter so it opens as "all" next time
-              if (expandedGroupKey) setGroupTimetables((p) => {
-                const prev = p[expandedGroupKey]
-                return prev ? { ...p, [expandedGroupKey]: { ...prev, selectedRouteId: null } } : p
-              })
-            }}
-            onShowGroupList={() => {
-              setShowGroupList(true)
-              setShowAllGroupsTimetable(false)
-              // Close the currently expanded group timetable when returning to group list.
-              if (expandedGroupKey) {
-                setGroupTimetableHidden((p) => ({ ...p, [expandedGroupKey]: true }))
-              }
-              // Reset expanded group filter so it opens as "all" next time
-              if (expandedGroupKey) setGroupTimetables((p) => {
-                const prev = p[expandedGroupKey]
-                return prev ? { ...p, [expandedGroupKey]: { ...prev, selectedRouteId: null } } : p
-              })
-            }}
-            onGroupCardClick={onGroupCardClick}
-            onToggleGroupTimetable={onToggleGroupTimetable}
-            onFetchGroupTimetable={fetchGroupTimetable}
-            onSelectGroupRoute={handleSelectGroupRoute}
-            onMoveGroupToCurrentTime={moveGroupToCurrentTime}
-            onFoldGroupTimetable={onFoldGroupTimetableAndKeepCardVisible}
-            getCombinedForGroup={getCombinedForGroup}
-            allGroupsActionLoading={!!allGroupsTimetable?.loading}
-          />
+              {/* Show group list button when focused single card mode */}
+              {focusedCardOnly && (
+                <div className="safe-area-bottom fixed bottom-3 left-0 right-0 z-40 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowGroupList(true)
+                      setShowAllGroupsTimetable(false)
+                      if (expandedGroupKey) {
+                        setGroupTimetableHidden((p) => ({ ...p, [expandedGroupKey]: true }))
+                        setGroupTimetables((p) => {
+                          const prev = p[expandedGroupKey]
+                          return prev ? { ...p, [expandedGroupKey]: { ...prev, selectedRouteId: null } } : p
+                        })
+                      }
+                    }}
+                    className="touch-target rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground shadow-sm hover:bg-muted"
+                  >
+                    결과목록보기
+                  </button>
+                </div>
+              )}
+
+              {/* 재검색 플로팅 버튼 — 예전 "지도/검색"·"결과" 탭을 대체한다(P6-T2). 결과 카드
+                  목록·통합 시간이력 화면(모바일에서만, 데스크톱은 지도/검색폼이 항상 옆에 보이므로
+                  불필요)에서 지도 우선 화면(P5-T2 스타일)으로 돌아가는 유일한 경로 — "결과목록보기"
+                  와 대칭되는 위치·스타일의 플로팅 버튼으로 배치한다. */}
+              {!focusedCardOnly && !isMapFirstMode && (
+                <div className="safe-area-bottom fixed bottom-3 left-0 right-0 z-40 flex justify-center md:hidden">
+                  <button
+                    type="button"
+                    onClick={() => setMobileMainView('map')}
+                    className="touch-target rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground shadow-sm hover:bg-muted"
+                  >
+                    재검색
+                  </button>
+                </div>
+              )}
+
+              {/* Result cards */}
+              {showAllGroupsTimetable && !showGroupList ? null : (result.groups || []).length === 0 ? (
+                <div>조회에 맞는 경로가 없습니다.</div>
+              ) : (
+                <div className="space-y-3">
+                  {visibleGroups.map(({ g, sortedIdx }) => {
+                    const groupKey = getGroupKey(g)
+                    return (
+                      <ResultCard
+                        key={groupKey + '-' + sortedIdx}
+                        group={g}
+                        index={sortedIdx}
+                        sday={sday}
+                        combined={getEffectiveCombinedForGroup(g)}
+                        realtimeByRouteId={realtimeByGroupKey[groupKey] || {}}
+                        stationNumberMaps={stationNumberMaps}
+                        selectedRouteId={groupTimetables[groupKey]?.selectedRouteId ?? null}
+                        onSelectRoute={(routeId) => handleSelectGroupRoute(groupKey, g, routeId)}
+                        onCardClick={() => onGroupCardClick(groupKey)}
+                        focused={focusedCardOnly}
+                      />
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -2158,12 +2545,12 @@ export default function Home() {
           try {
             if (navigator.clipboard && navigator.clipboard.writeText) {
               await navigator.clipboard.writeText(sharePreviewText)
-              alert('미리보기 텍스트를 클립보드에 복사했습니다.')
+              toast.success('미리보기 텍스트를 클립보드에 복사했습니다.')
             } else {
-              prompt('아래 텍스트를 복사하세요:', sharePreviewText)
+              toast.error('이 브라우저에서는 클립보드 복사를 지원하지 않습니다.')
             }
           } catch {
-            alert('복사에 실패했습니다.')
+            toast.error('복사에 실패했습니다.')
           }
         }}
         onCopyLink={async () => {
@@ -2171,12 +2558,12 @@ export default function Home() {
             const link = buildShareUrl({ view: 'results', baseTime: shareBaseTime })
             if (navigator.clipboard && navigator.clipboard.writeText) {
               await navigator.clipboard.writeText(link)
-              alert('공유 링크를 클립보드에 복사했습니다.')
+              toast.success('공유 링크를 클립보드에 복사했습니다.')
             } else {
-              prompt('아래 링크를 복사하세요:', link)
+              toast.error('이 브라우저에서는 클립보드 복사를 지원하지 않습니다.')
             }
           } catch {
-            alert('링크 복사에 실패했습니다.')
+            toast.error('링크 복사에 실패했습니다.')
           }
         }}
         onShare={async () => {
@@ -2185,12 +2572,12 @@ export default function Home() {
               await (navigator as any).share({ title: sharePreviewTitle || '버스탈시간 검색 결과', text: sharePreviewText, url: buildShareUrl({ view: 'results', baseTime: shareBaseTime }) })
             } else if (navigator.clipboard && navigator.clipboard.writeText) {
               await navigator.clipboard.writeText(sharePreviewText)
-              alert('공유 텍스트를 클립보드에 복사했습니다.')
+              toast.success('공유 텍스트를 클립보드에 복사했습니다.')
             } else {
-              prompt('아래 텍스트를 복사하세요:', sharePreviewText)
+              toast.error('이 브라우저에서는 공유·복사를 지원하지 않습니다.')
             }
           } catch {
-            alert('공유에 실패했습니다.')
+            toast.error('공유에 실패했습니다.')
           } finally {
             setSharePreviewOpen(false)
           }
@@ -2203,7 +2590,7 @@ export default function Home() {
           onClick={scrollToPageTop}
           aria-label="상단으로 이동"
           title="상단으로 이동"
-          className="btn-ui-icon fixed bottom-5 right-4 z-40 shadow-sm sm:right-6 sm:bottom-6"
+          className="btn-ui-icon safe-area-bottom-fab fixed right-4 z-40 shadow-sm sm:right-6"
         >
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M12 19V5" />
@@ -2223,7 +2610,7 @@ export default function Home() {
             title="GitHub 저장소 열기"
             className="inline-flex items-center rounded border border-slate-300 px-2 py-1 text-slate-700 hover:bg-slate-50"
           >
-            <Image src="/github-svgrepo-com.svg" alt="GitHub" width={16} height={16} />
+            <img src="/github-svgrepo-com.svg" alt="GitHub" width={16} height={16} />
             <span className="hidden ml-1 sm:inline">GitHub</span>
             <span className="sr-only">GitHub repository</span>
           </a>

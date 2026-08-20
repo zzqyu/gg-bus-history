@@ -25,6 +25,10 @@ export function parseRealtimeItemResponse(payload: any): RealtimeArrivalItem | n
   const remainSeatCnt2 = Number.isFinite(Number(item.remainSeatCnt2)) ? Number(item.remainSeatCnt2) : null
   const congestion1 = Number.isFinite(Number(item.congestion1)) ? Number(item.congestion1) : null
   const congestion2 = Number.isFinite(Number(item.congestion2)) ? Number(item.congestion2) : null
+  const locationNo1 = Number.isFinite(Number(item.locationNo1)) ? Number(item.locationNo1) : null
+  const locationNo2 = Number.isFinite(Number(item.locationNo2)) ? Number(item.locationNo2) : null
+  const lowPlate1 = item.lowPlate1 != null ? String(item.lowPlate1) : null
+  const lowPlate2 = item.lowPlate2 != null ? String(item.lowPlate2) : null
   return {
     stationId,
     routeId,
@@ -37,7 +41,26 @@ export function parseRealtimeItemResponse(payload: any): RealtimeArrivalItem | n
     remainSeatCnt2,
     congestion1,
     congestion2,
+    locationNo1,
+    locationNo2,
+    lowPlate1,
+    lowPlate2,
   }
+}
+
+/** "3정거장 전" 형태의 텍스트. 값이 없으면 빈 문자열. */
+export function buildRealtimeLocationText(item: RealtimeArrivalItem | null | undefined, predictIndex: 1 | 2 = 1): string {
+  if (!item) return ''
+  const n = predictIndex === 1 ? item.locationNo1 : item.locationNo2
+  if (n == null || !Number.isFinite(Number(n)) || Number(n) < 0) return ''
+  return `${Math.round(Number(n))}정거장 전`
+}
+
+/** 저상버스 여부. 백엔드는 '1'이면 저상, 그 외(빈 문자열 등)는 일반차량. */
+export function isLowFloorBus(item: RealtimeArrivalItem | null | undefined, predictIndex: 1 | 2 = 1): boolean {
+  if (!item) return false
+  const v = predictIndex === 1 ? item.lowPlate1 : item.lowPlate2
+  return String(v || '').trim() === '1'
 }
 
 function getCongestionLabel(level: number | null | undefined): string {
@@ -53,30 +76,37 @@ export function buildRealtimeOccupancyText(item: RealtimeArrivalItem | null | un
   if (!item) return ''
   const seat = predictIndex === 1 ? item.remainSeatCnt1 : item.remainSeatCnt2
   if (seat != null && Number.isFinite(Number(seat)) && Number(seat) >= 0) {
-    return `좌석 ${Math.round(Number(seat))}`
+    return `${Math.round(Number(seat))}석`
   }
   const congestion = predictIndex === 1 ? item.congestion1 : item.congestion2
-  const label = getCongestionLabel(congestion)
-  if (label) return `혼잡 ${label}`
-  return ''
+  return getCongestionLabel(congestion)
 }
 
-export function pickRealtimePredictIndex(
-  mappedRealtimeMin: number | null | undefined,
-  item: RealtimeArrivalItem | null | undefined,
-): 1 | 2 {
-  const rt = Math.round(Number(mappedRealtimeMin || 0))
-  const p1 = Math.round(Number(item?.predictTime1 || 0))
-  const p2 = Math.round(Number(item?.predictTime2 || 0))
-  if (mappedRealtimeMin == null || !Number.isFinite(rt) || rt <= 0) return 1
-  if (p2 > 0 && Math.abs(rt - p2) < (p1 > 0 ? Math.abs(rt - p1) : Number.POSITIVE_INFINITY)) return 2
-  return 1
+/** 좌석수 미표시 노선(마을·일반시내 등)용 — 좌석수 없이 혼잡도만 표시한다. */
+export function buildRealtimeCongestionText(item: RealtimeArrivalItem | null | undefined, predictIndex: 1 | 2 = 1): string {
+  if (!item) return ''
+  const congestion = predictIndex === 1 ? item.congestion1 : item.congestion2
+  return getCongestionLabel(congestion)
 }
 
-export function buildRealtimeEtaText(min: number | null | undefined): string {
-  if (min == null || !Number.isFinite(Number(min))) return '실시간 정보없음'
-  const m = Math.max(0, Math.round(Number(min)))
-  return `실시간 ${m}분`
+/** 좌석/혼잡도를 색으로도 구분한다(재량 항목 — GBIS 좌석 색상코딩 참고).
+ * 혼잡도는 노선 유형 색 토큰을 재사용한다(사용자 지정): 여유=일반시내색(route-normal, 초록),
+ * 보통=마을버스색(route-village, 원래 노란색이었다가 라이트 모드 WCAG AA 대비 때문에 어둡게
+ * 조정된 톤 — 다크 모드에서는 실제 노란색으로 보인다), 혼잡=광역버스색(route-express, 빨강).
+ * 좌석수는 잔여석 기준 별도 배색을 유지한다. */
+export function getOccupancyTone(item?: RealtimeArrivalItem | null, predictIndex: 1 | 2 = 1): string {
+  const seat = predictIndex === 1 ? item?.remainSeatCnt1 : item?.remainSeatCnt2
+  if (seat != null && Number.isFinite(Number(seat))) {
+    const n = Number(seat)
+    if (n <= 0) return 'text-red-600 dark:text-red-400'
+    if (n <= 5) return 'text-amber-600 dark:text-amber-400'
+    return 'text-emerald-600 dark:text-emerald-400'
+  }
+  const congestion = Number(predictIndex === 1 ? item?.congestion1 : item?.congestion2)
+  if (!Number.isFinite(congestion)) return 'text-muted-foreground'
+  if (congestion >= 3) return 'text-route-express'
+  if (congestion === 2) return 'text-route-village'
+  return 'text-route-normal'
 }
 
 export function buildRealtimeClockText(min: number | null | undefined, now: Date = new Date()): string {

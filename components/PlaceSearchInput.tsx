@@ -23,7 +23,7 @@ export default function PlaceSearchInput({
     <div className="flex items-center">
       <div className="relative min-w-0 flex-1">
         <input
-          className="h-9 min-w-0 w-full rounded border border-slate-300 px-2 pr-8 py-1 text-sm sm:text-base"
+          className="h-9 min-w-0 w-full rounded-md border border-input bg-background px-2 pr-8 py-1 text-sm text-foreground sm:text-base"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}
@@ -35,7 +35,7 @@ export default function PlaceSearchInput({
             onClick={() => onChange('')}
             aria-label="입력 내용 지우기"
             title="입력 내용 지우기"
-            className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex h-6 w-6 items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+            className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             ×
           </button>

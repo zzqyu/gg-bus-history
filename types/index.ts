@@ -142,6 +142,12 @@ export interface RealtimeArrivalItem {
   remainSeatCnt2?: number | null
   congestion1?: number | null
   congestion2?: number | null
+  /** 몇 정거장 전인지 (예: 3 = "3정거장 전") */
+  locationNo1?: number | null
+  locationNo2?: number | null
+  /** 저상버스 여부. 백엔드는 '1'/'' 문자열로 내려준다 */
+  lowPlate1?: string | null
+  lowPlate2?: string | null
 }
 
 export type RealtimeArrivalMap = Record<string, RealtimeArrivalItem>

@@ -20,7 +20,7 @@ export default function MapControls({
   locatingMap = false,
 }: MapControlsProps) {
   return (
-    <div className="mb-2 space-y-2 rounded-none border-0 bg-transparent p-0 sm:rounded-md sm:border sm:border-slate-200 sm:bg-slate-50/60 sm:p-2">
+    <div className="mb-2 space-y-2 rounded-none border-0 bg-transparent p-0 sm:rounded-lg sm:border sm:border-border sm:bg-muted/40 sm:p-3">
       <div className="flex flex-wrap items-center gap-2">
         <strong className="text-xs sm:text-sm">지도 핀 설정 (대체 입력)</strong>
         <button
@@ -46,7 +46,7 @@ export default function MapControls({
             </svg>
           )} 현재 위치
         </button>
-        <span className="text-[11px] text-slate-600">검색 대신 지도에서 직접 지정할 수 있어요.</span>
+        <span className="text-[11px] text-muted-foreground">검색 대신 지도에서 직접 지정할 수 있어요.</span>
       </div>
 
       <div className="flex flex-col gap-2 sm:flex sm:flex-row sm:flex-wrap sm:items-center">
@@ -59,8 +59,9 @@ export default function MapControls({
             step="50"
             value={startRadius}
             onChange={(e) => onStartRadiusChange(e.target.value)}
+            className="accent-primary"
           />
-          <span>{startRadius}m</span>
+          <span className="text-primary font-semibold">{startRadius}m</span>
         </label>
         <label className="flex items-center gap-1.5 text-xs sm:text-sm">
           <strong className="text-xs sm:text-sm">도착 반경</strong>
@@ -71,8 +72,9 @@ export default function MapControls({
             step="50"
             value={endRadius}
             onChange={(e) => onEndRadiusChange(e.target.value)}
+            className="accent-primary"
           />
-          <span>{endRadius}m</span>
+          <span className="text-primary font-semibold">{endRadius}m</span>
         </label>
       </div>
     </div>

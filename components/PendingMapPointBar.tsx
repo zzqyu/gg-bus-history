@@ -15,8 +15,8 @@ export default function PendingMapPointBar({
   onClear,
 }: PendingMapPointBarProps) {
   return (
-    <div className="mb-2 flex flex-wrap items-center gap-2 rounded border border-sky-200 bg-sky-50 p-2">
-      <span className="text-sm text-slate-800">
+    <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 p-2">
+      <span className="text-sm text-foreground">
         선택 좌표: ({point.lon}, {point.lat})
       </span>
       <button
