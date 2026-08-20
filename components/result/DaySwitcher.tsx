@@ -71,7 +71,7 @@ export default function DaySwitcher({ value, onChange }: DaySwitcherProps) {
               setCustomOpen(false)
             }}
             aria-pressed={p.value === value}
-            className={`touch-target min-h-9 rounded-full border px-3 text-xs font-semibold transition ${
+            className={`touch-target rounded-full border px-2.5 py-1 text-xs font-semibold transition ${
               p.value === value
                 ? 'border-primary bg-primary text-primary-foreground'
                 : 'border-border bg-background text-foreground hover:bg-muted'
@@ -84,7 +84,7 @@ export default function DaySwitcher({ value, onChange }: DaySwitcherProps) {
           type="button"
           onClick={() => setCustomOpen((open) => !open)}
           aria-pressed={!matchedPreset}
-          className={`touch-target min-h-9 rounded-full border px-3 text-xs font-semibold transition ${
+          className={`touch-target rounded-full border px-2.5 py-1 text-xs font-semibold transition ${
             !matchedPreset
               ? 'border-primary bg-primary text-primary-foreground'
               : 'border-border bg-background text-foreground hover:bg-muted'

@@ -37,7 +37,7 @@ export default function GlossarySheet({ trigger }: GlossarySheetProps) {
         {trigger ?? (
           <button
             type="button"
-            className="touch-target min-h-11 inline-flex items-center gap-1 rounded border border-border bg-background px-2.5 text-sm font-semibold"
+            className="touch-target inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-1 text-xs font-semibold"
           >
             <span aria-hidden="true">ⓘ</span> 용어 안내
           </button>

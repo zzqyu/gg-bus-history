@@ -2114,7 +2114,7 @@ export default function Home() {
           </div>
         </div>
       </div>
-      <div className="p-4 sm:p-5">
+      <div className="p-2 sm:p-2.5 !pt-0">
       <div className="mx-auto w-full max-w-[1200px]">
 
       {/* Map section — P5-T2: 검색 전엔 지도가 화면을 채우고 검색폼이 하단에 뜨는 형태,
@@ -2360,10 +2360,6 @@ export default function Home() {
             <div className={`mt-5 ${(showAllGroupsTimetable && !showGroupList) || focusedCardOnly ? 'safe-area-content-bottom' : ''}`}>
               {!focusedCardOnly && (
                 <>
-                  <div className="mb-3">
-                    <DaySwitcher value={sday} onChange={handleSdayChange} />
-                  </div>
-
                   <div className="mb-3 grid w-full grid-cols-2 rounded-xl border border-border bg-card p-1" aria-label="결과 화면 전환">
                     <button
                       type="button"
@@ -2395,6 +2391,10 @@ export default function Home() {
                       )}
                       통합 시간이력
                     </button>
+                  </div>
+
+                  <div className="mb-3">
+                    <DaySwitcher value={sday} onChange={handleSdayChange} />
                   </div>
                 </>
               )}

@@ -223,11 +223,11 @@ export function TimetableRow({
   return (
     <li
       ref={rowRef}
-      className={`relative grid min-w-0 grid-cols-[64px_minmax(0,1fr)] gap-3 border-b border-border px-3 py-4 sm:grid-cols-[84px_minmax(130px,0.65fr)_minmax(0,0.9fr)] sm:px-5 ${
+      className={`relative flex min-w-0 gap-1.5 border-b border-border px-3 py-4 sm:grid sm:grid-cols-[84px_minmax(130px,0.65fr)_minmax(0,0.9fr)] sm:px-5 ${
         highlighted ? 'bg-primary/10' : 'bg-card'
       }`}
     >
-      <div className="relative text-center">
+      <div className="relative w-16 shrink-0 text-center sm:w-auto">
         <span
           className={`relative z-[1] inline-flex min-h-9 min-w-14 items-center justify-center rounded-xl px-2 text-base font-extrabold tabular-nums ${
             highlighted ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'
@@ -240,49 +240,45 @@ export function TimetableRow({
             실시간 {realtimeClockText}
           </span>
         )}
-        <span
-          className="absolute left-1/2 top-9 h-[calc(100%+16px)] w-px -translate-x-1/2 bg-border"
-          aria-hidden="true"
-        />
+
+        {occupancyText && <span className={`text-xs font-semibold ${occupancyTone}`}>{occupancyText}</span>}
+
       </div>
 
-      <div className="min-w-0 sm:pt-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className={`text-base font-extrabold ${getRouteTypeClass(entry.routeTypeCd)}`}>
-            {entry.routeName || entry.routeId || '-'}
-          </span>
-          {typeLabel && <span className="text-xs font-semibold text-muted-foreground">{typeLabel}</span>}
-          {highlighted && (
-            <span className="rounded-full bg-primary px-2 py-1 text-xs font-bold text-primary-foreground">
-              현재 시각과 가장 가까움
+      {/* 모바일에서는 이 래퍼가 flex-col로 route-info/하차예상 박스를 각자 내용 높이만큼만
+          쌓는다 — 이전엔 그리드로 쌓아서, 왼쪽 열(승차시각·실시간·좌석) 내용이 길어지면 그리드
+          row 트랙이 그 높이에 맞춰 커져 하차예상 박스가 불필요하게 밀려 내려가는 문제가 있었다.
+          sm 이상에서는 display:contents로 자신은 사라지고 자식 두 개가 그리드에 직접 배치된다. */}
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:contents">
+        <div className="min-w-0 sm:pt-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`text-base font-extrabold ${getRouteTypeClass(entry.routeTypeCd)}`}>
+              {entry.routeName || entry.routeId || '-'}
             </span>
+            {typeLabel && <span className="text-xs font-semibold text-muted-foreground">{typeLabel}</span>}
+          </div>
+          <p className="mt-1 truncate text-xs text-muted-foreground">
+            {entry.boardStationName || '-'} · {entry.orderGap ?? '-'}정거장
+          </p>
+        </div>
+
+        <div className="min-w-0 rounded-xl border border-primary/20 bg-primary/5 p-3 sm:col-start-3 sm:row-start-1">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="truncate text-xs font-bold text-primary">{entry.alightStationName || '목적지'} 하차예상</p>
+              <p className="mt-0.5 text-base font-extrabold tabular-nums text-primary">{alightText}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs font-semibold text-muted-foreground">버스 이동</p>
+              <p className="mt-0.5 text-sm font-bold">{formatBusDuration(entry)}</p>
+            </div>
+          </div>
+          {entry.inferred && (
+            <div className="mt-2">
+              <ConfidenceBadge entry={entry} />
+            </div>
           )}
         </div>
-        <p className="mt-1 truncate text-xs text-muted-foreground">
-          {entry.boardStationName || '-'} · {entry.orderGap ?? '-'}정거장
-        </p>
-        {occupancyText && (
-          <p className={`mt-0.5 text-xs font-semibold ${occupancyTone}`}>{occupancyText}</p>
-        )}
-      </div>
-
-      <div className="col-start-2 min-w-0 rounded-xl border border-primary/20 bg-primary/5 p-3 sm:col-start-3 sm:row-start-1">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-xs font-bold text-primary">목적지 하차 예상</p>
-            <p className="mt-0.5 text-xl font-black tabular-nums text-primary">{alightText}</p>
-            <p className="mt-0.5 truncate text-xs text-primary/70">{entry.alightStationName || '-'}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-xs font-semibold text-muted-foreground">버스 이동</p>
-            <p className="mt-0.5 text-sm font-bold">{formatBusDuration(entry)}</p>
-          </div>
-        </div>
-        {entry.inferred && (
-          <div className="mt-2">
-            <ConfidenceBadge entry={entry} />
-          </div>
-        )}
       </div>
     </li>
   )
@@ -408,45 +404,42 @@ export default function TimetableView({ combined, sday, onChange, realtimeByStat
       >
         <div className="border-b border-border p-4 sm:p-6">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-bold text-primary">여러 노선 · 하나의 시간축</p>
+            <p id="integrated-history-title" className="text-sm font-bold text-primary">통합시간이력</p>
             <div className="shrink-0">
               <GlossarySheet />
             </div>
           </div>
-          <h2 id="integrated-history-title" className="mt-1 text-2xl font-extrabold tracking-tight">
-            A → B 통합 시간이력
-          </h2>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            이 구간을 갈 수 있는 모든 노선의 과거 운행을 출발시각순으로 섞었습니다. 각 행에서 탑승과 목적지 하차 예상시각을 함께 확인하세요.
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            이 구간의 모든 노선 운행 이력을 출발시각순으로 모아 탑승·하차 예상시각을 보여줍니다.
           </p>
 
           {nextEntry && (
-            <div className="mt-5">
+            <div className="mt-3">
               <button
                 type="button"
                 onClick={scrollToHighlighted}
-                className="touch-target rounded-full border border-transparent bg-primary px-2.5 py-1 text-xs font-bold text-primary-foreground hover:bg-primary/90"
+                className="touch-target rounded-full border border-transparent bg-primary px-2 py-0.5 text-[11px] font-bold text-primary-foreground hover:bg-primary/90"
               >
-                현재 시각과 가까운 이력으로 이동
+                현재시각
               </button>
             </div>
           )}
 
           <div
-            className={`flex max-w-full items-center gap-2 overflow-x-auto overflow-y-hidden pb-1 [&_.text-\[11px\]]:!text-xs ${nextEntry ? 'mt-2' : 'mt-5'}`}
+            className={`flex max-w-full items-center gap-1.5 overflow-x-auto overflow-y-hidden pb-1 ${nextEntry ? 'mt-1.5' : 'mt-3'}`}
             aria-label="노선 필터"
           >
             <button
               type="button"
               onClick={() => setSelectedRouteId(null)}
               aria-pressed={selectedRouteId == null}
-              className={`touch-target shrink-0 rounded-full border px-2.5 py-1 text-xs font-bold ${
+              className={`touch-target shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-bold ${
                 selectedRouteId == null
                   ? 'border-primary bg-primary text-primary-foreground'
                   : 'border-border bg-background text-foreground hover:bg-muted'
               }`}
             >
-              전체 {routeEntries.length}개 노선
+              전체
             </button>
             {routeEntries.map((entry) => {
               const routeId = String(entry.routeId || '')
@@ -458,7 +451,7 @@ export default function TimetableView({ combined, sday, onChange, realtimeByStat
                     routeName: String(entry.routeName || routeId),
                     routeTypeCd: entry.routeTypeCd,
                   }}
-                  size="xs"
+                  size="2xs"
                   selected={selectedRouteId === routeId}
                   onClick={(nextRouteId) => {
                     setSelectedRouteId(selectedRouteId === nextRouteId ? null : nextRouteId)
