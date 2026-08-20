@@ -173,7 +173,7 @@ export default function ResultCard({
   const occupancyText = seatEligible
     ? buildRealtimeOccupancyText(realtimeItem)
     : buildRealtimeCongestionText(realtimeItem)
-  const occupancyTone = getOccupancyTone(realtimeItem)
+  const occupancyTone = getOccupancyTone(realtimeItem, 1, seatEligible)
 
   const routeTypeLabel = getRouteTypeLabel(displayRouteTypeCd)
   const routeTypeClass = getRouteTypeClass(displayRouteTypeCd)
@@ -280,21 +280,24 @@ export default function ResultCard({
         </div>
       </div>
 
-      {/* 2차 C: 이 카드의 노선 목록 — 항상 노출(피드백 #3), 가로 스크롤 한 줄로 고정해 카드 높이가
+      {/* 2차 C: 이 카드의 노선 목록 — 2개 이상일 때만 노출(피드백 #3). 노선이 1개면 위쪽
+          대표 노선 표시와 중복이라 생략한다. 가로 스크롤 한 줄로 고정해 카드 높이가
           노선 개수에 영향받지 않게 한다(P3-T13) */}
-      <div className="mt-1.5 flex items-center gap-1.5 overflow-x-auto overflow-y-hidden pb-0.5">
-        <span className="shrink-0 text-[10px] font-semibold text-muted-foreground">노선</span>
-        {orderedRouteBadges.map((r) => (
-          <RouteBadge
-            key={r.routeId}
-            route={r}
-            size="xs"
-            disabled={!focused}
-            selected={selectedRouteId === r.routeId}
-            onClick={(routeId) => onSelectRoute?.(selectedRouteId === routeId ? null : routeId)}
-          />
-        ))}
-      </div>
+      {orderedRouteBadges.length > 1 && (
+        <div className="mt-1.5 flex items-center gap-1.5 overflow-x-auto overflow-y-hidden pb-0.5">
+          <span className="shrink-0 text-[10px] font-semibold text-muted-foreground">노선</span>
+          {orderedRouteBadges.map((r) => (
+            <RouteBadge
+              key={r.routeId}
+              route={r}
+              size="xs"
+              disabled={!focused}
+              selected={selectedRouteId === r.routeId}
+              onClick={(routeId) => onSelectRoute?.(selectedRouteId === routeId ? null : routeId)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

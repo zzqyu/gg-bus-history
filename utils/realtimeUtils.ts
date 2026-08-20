@@ -93,9 +93,15 @@ export function buildRealtimeCongestionText(item: RealtimeArrivalItem | null | u
  * 혼잡도는 노선 유형 색 토큰을 재사용한다(사용자 지정): 여유=일반시내색(route-normal, 초록),
  * 보통=마을버스색(route-village, 원래 노란색이었다가 라이트 모드 WCAG AA 대비 때문에 어둡게
  * 조정된 톤 — 다크 모드에서는 실제 노란색으로 보인다), 혼잡=광역버스색(route-express, 빨강).
- * 좌석수는 잔여석 기준 별도 배색을 유지한다. */
-export function getOccupancyTone(item?: RealtimeArrivalItem | null, predictIndex: 1 | 2 = 1): string {
-  const seat = predictIndex === 1 ? item?.remainSeatCnt1 : item?.remainSeatCnt2
+ * 좌석수는 잔여석 기준 별도 배색을 유지한다. seatEligible이 false면 API가 remainSeatCnt를
+ * 내려주더라도(표시는 혼잡도 텍스트) 좌석 배색을 쓰지 않는다 — buildRealtimeOccupancyText/
+ * buildRealtimeCongestionText의 표시 텍스트 선택 기준과 반드시 맞춰야 한다. */
+export function getOccupancyTone(
+  item?: RealtimeArrivalItem | null,
+  predictIndex: 1 | 2 = 1,
+  seatEligible = true,
+): string {
+  const seat = seatEligible ? (predictIndex === 1 ? item?.remainSeatCnt1 : item?.remainSeatCnt2) : null
   if (seat != null && Number.isFinite(Number(seat))) {
     const n = Number(seat)
     if (n <= 0) return 'text-red-600 dark:text-red-400'
