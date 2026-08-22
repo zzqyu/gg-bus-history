@@ -109,14 +109,8 @@ export default function ResultCard({
     : null
 
   const routeBadges = getGroupRouteBadges(group)
-  // 선택된 노선이 있으면 목록 맨 앞으로 옮겨서 보여준다(나머지는 기존 순서 유지).
-  const orderedRouteBadges = selectedRouteId
-    ? [...routeBadges].sort((a, b) => {
-        const aSelected = a.routeId === selectedRouteId
-        const bSelected = b.routeId === selectedRouteId
-        return aSelected === bSelected ? 0 : aSelected ? -1 : 1
-      })
-    : routeBadges
+  // 선택 상태와 관계없이 노선 번호 오름차순을 유지한다.
+  const orderedRouteBadges = routeBadges
 
   const bestRouteId = bestTimeline?.entry?.routeId ? String(bestTimeline.entry.routeId) : null
   const bestRouteInfo = (group.routes || []).find((r) => String(r.routeId || '') === String(bestRouteId || ''))

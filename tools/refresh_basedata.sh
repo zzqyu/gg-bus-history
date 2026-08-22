@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # 매일 새벽 basedata.db를 정부 공공데이터 최신본으로 갱신한다(systemd 타이머로 기동).
 #
-# import_to_sqlite.py는 CREATE TABLE IF NOT EXISTS + 단순 INSERT라서, 같은 DB 파일에
-# 반복 실행하면 행이 계속 누적된다(중복). 그래서 매번 새 파일(basedata.db.new)에
-# 임포트하고, 핵심 테이블에 데이터가 들어왔는지 확인한 뒤에만 기존 파일을 교체한다.
+# 매번 새 파일(basedata.db.new)에 임포트하고, 핵심 테이블에 데이터가 들어왔는지
+# 확인한 뒤에만 기존 파일을 교체한다. 임포터도 기본적으로 대상 테이블을 교체하지만,
+# 새 DB 파일을 사용하는 방식이 전체 데이터셋 교체를 보장한다.
 #
 # api 컨테이너가 basedata.db를 WAL 모드로 열어두므로, 파일 교체 전에 컨테이너를 반드시
 # 내린다. docker-compose 1.29.2가 "컨테이너 재생성" 경로에서 이미지 메타데이터 파싱

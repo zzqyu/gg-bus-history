@@ -957,7 +957,7 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
         a_ph = ','.join(['?'] * len(a_ids))
         b_ph = ','.join(['?'] * len(b_ids))
         pair_sql = f"""
-        SELECT r1.stationId AS boardStationId, r2.stationId AS alightStationId,
+        SELECT DISTINCT r1.stationId AS boardStationId, r2.stationId AS alightStationId,
                r1.routeId, r1.routeName, rt.routeTypeCd, r1.upDown,
                CAST(r1.staOrder AS INTEGER) AS boardOrder, CAST(r2.staOrder AS INTEGER) AS alightOrder
         FROM routestation r1
@@ -966,7 +966,6 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
         WHERE r1.stationId IN ({a_ph})
           AND r2.stationId IN ({b_ph})
           AND CAST(r1.staOrder AS INTEGER) < CAST(r2.staOrder AS INTEGER)
-        LIMIT 20000
         """
         t0 = time.time()
         cur.execute(pair_sql, a_ids + b_ids)
@@ -1147,41 +1146,6 @@ def find_routes(ax: float, ay: float, bx: float, by: float, radius: int = 500, a
         filtered_groups.append(g2)
 
     groups = filtered_groups
-
-    # ── Outlier-gap filter ────────────────────────────────────────────────────────
-    # Removes routes with disproportionately large orderGap when shorter alternatives
-    # exist.  Catches one-way / wrong-direction / heavy-detour routes that share a stop
-    # with both A and B but travel a long loop between them.
-    #
-    # Limit = min_global_gap + max(12, min_global_gap * 2).
-    # Scales naturally: min=4 → limit=16;  min=14 → limit=42;  min=30 → limit=90.
-    # When all routes are inherently long the limit still only trims extreme outliers.
-    _all_route_gaps = [
-        int(r.get('orderGap') or 10 ** 9)
-        for g in groups
-        for r in (g.get('routes') or [])
-        if r.get('orderGap') is not None
-    ]
-    if _all_route_gaps:
-        _min_global_gap = min(_all_route_gaps)
-        # Ratio-based limit: allows gaps up to min + max(12, min*2).
-        # This scales naturally for short routes (min=4 → limit=16) and
-        # mid-range routes (min=14 → limit=42) without a fixed min_gap guard.
-        _gap_limit = _min_global_gap + max(12, _min_global_gap * 2)
-        _outlier_filtered = []
-        for g in groups:
-            kept = [r for r in (g.get('routes') or []) if int(r.get('orderGap') or 10 ** 9) <= _gap_limit]
-            if not kept:
-                continue
-            g2 = dict(g)
-            g2['routes'] = kept
-            g2['routeIds'] = sorted({str(x.get('routeId') or '') for x in kept})
-            g2['orderGapScore'] = sum(int(x.get('orderGap') or 0) for x in kept)
-            _outlier_filtered.append(g2)
-        _removed = sum(1 for g in groups for r in (g.get('routes') or []) if int(r.get('orderGap') or 10 ** 9) > _gap_limit)
-        if _removed:
-            logger.info(f"find_routes: outlier-gap filter removed {_removed} route(s) with gap > {_gap_limit} (min_global={_min_global_gap})")
-        groups = _outlier_filtered
 
     # Deduplicate groups with identical routeId sets, keep one with best (lowest) score
     dedup = {}

@@ -73,6 +73,7 @@ export default function Home() {
   const [startSearchOpened, setStartSearchOpened] = useState(false)
   const [endSearchOpened, setEndSearchOpened] = useState(false)
   const [pendingMapPoint, setPendingMapPoint] = useState<PendingMapPoint | null>(null)
+  const [mapPickTarget, setMapPickTarget] = useState<'start' | 'end' | null>(null)
   const [mapError, setMapError] = useState('')
   const [showGroupList, setShowGroupList] = useState(true)
   const [showAllGroupsTimetable, setShowAllGroupsTimetable] = useState(false)
@@ -97,6 +98,7 @@ export default function Home() {
 
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
+  const mapPickTargetRef = useRef<'start' | 'end' | null>(null)
   const placesRef = useRef<any>(null)
   const geocoderRef = useRef<any>(null)
   const markersRef = useRef<{ start: any; end: any }>({ start: null, end: null })
@@ -806,21 +808,47 @@ export default function Home() {
     resetTimetableViews()
   }
 
-  async function applyPendingMapPoint(type: 'start' | 'end') {
-    if (!pendingMapPoint) return
-    const { lon, lat } = pendingMapPoint
+  function beginMapPointPick(type: 'start' | 'end') {
+    mapPickTargetRef.current = type
+    setMapPickTarget(type)
+    setPendingMapPoint(null)
+    setPreSearchPanelOpen(true)
+  }
+
+  function cancelMapPointPick() {
+    mapPickTargetRef.current = null
+    setMapPickTarget(null)
+  }
+
+  function applyMapPoint(type: 'start' | 'end', point: PendingMapPoint) {
+    const { lon, lat } = point
     const fallbackText = `${toCoordString(lat)}, ${toCoordString(lon)}`
-    const addressText = await resolveAddressTextByCoord(lon, lat)
-    const keywordText = addressText || fallbackText
+    // 좌표는 역지오코딩 응답을 기다리지 않고 즉시 반영한다. 지도 클릭 직후에도
+    // 마커·검색어가 먼저 갱신되어야 하며, 주소 변환은 완료되면 검색어만 보완한다.
     if (type === 'start') {
       setStartPoint(lon, lat)
-      setStartKeyword(keywordText)
+      setStartKeyword(fallbackText)
     } else {
       setEndPoint(lon, lat)
-      setEndKeyword(keywordText)
+      setEndKeyword(fallbackText)
     }
+    mapPickTargetRef.current = null
+    setMapPickTarget(null)
     setPendingMapPoint(null)
     resetTimetableViews()
+
+    resolveAddressTextByCoord(lon, lat).then((addressText) => {
+      if (!addressText) return
+      if (type === 'start') setStartKeyword(addressText)
+      else setEndKeyword(addressText)
+    }).catch(() => {
+      // 좌표와 좌표 텍스트는 이미 반영됐으므로 주소 변환 실패는 무시한다.
+    })
+  }
+
+  function applyPendingMapPoint(type: 'start' | 'end') {
+    if (!pendingMapPoint) return
+    applyMapPoint(type, pendingMapPoint)
   }
 
   function searchPlace(type: 'start' | 'end') {
@@ -1732,7 +1760,14 @@ export default function Home() {
         }
         kakao.maps.event.addListener(map, 'click', (mouseEvent: any) => {
           const latLng = mouseEvent.latLng
-          setPendingMapPoint({ lon: toCoordString(latLng.getLng()), lat: toCoordString(latLng.getLat()) })
+          const point = { lon: toCoordString(latLng.getLng()), lat: toCoordString(latLng.getLat()) }
+          const target = mapPickTargetRef.current
+          if (target) {
+            applyMapPoint(target, point)
+            return
+          }
+          setPendingMapPoint(point)
+          setPreSearchPanelOpen(true)
         })
         // Trigger post-init effects so latest URL/query state values are rendered
         setMapReadyTick((v) => v + 1)
@@ -2127,7 +2162,7 @@ export default function Home() {
           <div className="pointer-events-none absolute left-0 right-0 top-0 z-10 p-3 sm:p-4">
             <div className="pointer-events-auto relative z-10 mx-auto max-w-[480px] rounded-2xl border border-badge-realtime-border bg-badge-realtime-bg/95 p-3 text-badge-realtime-fg shadow-lg backdrop-blur-sm">
               <p className="text-xs font-bold leading-5">
-                버스 길찾기 경로 모든 노선의 통합 운행 이력 + 하차 예상시각까지, 아래에서 바로 검색하세요
+                출발지·도착지를 검색하거나 지도에서 직접 선택해 버스 경로를 찾아보세요
               </p>
             </div>
           </div>
@@ -2216,6 +2251,60 @@ export default function Home() {
                   </div>
                 )}
 
+                {isMapFirstMode && (
+                  <div className="rounded-xl border border-primary/20 bg-primary/[0.04] p-3">
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-bold text-foreground">지도에서 직접 지정</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">버튼을 누른 뒤 지도에서 해당 지점을 선택하세요.</p>
+                      </div>
+                      {mapPickTarget && (
+                        <button
+                          type="button"
+                          onClick={cancelMapPointPick}
+                          className="touch-target shrink-0 text-xs font-semibold text-muted-foreground underline underline-offset-2"
+                        >
+                          취소
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        aria-pressed={mapPickTarget === 'start'}
+                        onClick={() => beginMapPointPick('start')}
+                        className={`min-h-10 rounded-lg border px-3 py-2 text-sm font-bold transition ${mapPickTarget === 'start' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/30 bg-background text-primary hover:bg-primary/10'}`}
+                      >
+                        <span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-origin align-middle" aria-hidden="true" />
+                        출발지 선택
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={mapPickTarget === 'end'}
+                        onClick={() => beginMapPointPick('end')}
+                        className={`min-h-10 rounded-lg border px-3 py-2 text-sm font-bold transition ${mapPickTarget === 'end' ? 'border-destination bg-destination text-white' : 'border-destination/30 bg-background text-destination hover:bg-destination/10'}`}
+                      >
+                        <span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-destination align-middle" aria-hidden="true" />
+                        도착지 선택
+                      </button>
+                    </div>
+                    {mapPickTarget && (
+                      <p className="mt-2 text-center text-xs font-semibold text-primary" role="status">
+                        지도에서 {mapPickTarget === 'start' ? '출발지' : '도착지'}를 눌러주세요.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {pendingMapPoint && (
+                  <PendingMapPointBar
+                    point={pendingMapPoint}
+                    onSetStart={() => applyPendingMapPoint('start')}
+                    onSetEnd={() => applyPendingMapPoint('end')}
+                    onClear={() => setPendingMapPoint(null)}
+                  />
+                )}
+
                 {/* Step 2: 지도에서 직접 조정 — 검색 후엔 항상 펼침, 검색 전엔 접혔다 펼치는 형태 */}
                 <Collapsible open={!isMapFirstMode ? true : preSearchPanelOpen} onOpenChange={setPreSearchPanelOpen}>
                   {isMapFirstMode && (
@@ -2250,15 +2339,6 @@ export default function Home() {
                         onMoveToCurrentLocation={moveMapToCurrentLocation}
                         locatingMap={locatingMap}
                       />
-
-                      {pendingMapPoint && (
-                        <PendingMapPointBar
-                          point={pendingMapPoint}
-                          onSetStart={() => applyPendingMapPoint('start')}
-                          onSetEnd={() => applyPendingMapPoint('end')}
-                          onClear={() => setPendingMapPoint(null)}
-                        />
-                      )}
 
                       {mapError && <div className="mb-2 text-sm text-destructive">{mapError}</div>}
                     </div>

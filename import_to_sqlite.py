@@ -5,7 +5,9 @@ import_to_sqlite.py
 Reads single-line TXT files where columns are '|' and rows are separated by '^'.
 First row (before first '^') is header, following rows are data.
 Creates or opens an SQLite database and writes each TXT file to a table named
-after the file (filename without extension). All columns are created as TEXT.
+after the file (filename without extension). Existing imported tables are
+replaced by default so that rows from an older base-data version cannot remain
+in the database. Use --append only when intentionally accumulating rows.
 
 Usage:
     python import_to_sqlite.py --dir /path/to/dir --db data.db
@@ -241,7 +243,13 @@ def iter_caret_rows(path: Path, read_chunk_chars: int = 1024 * 1024):
             yield tail
 
 
-def process_file(path: Path, conn: sqlite3.Connection, batch_size: int = 2000, read_chunk_chars: int = 1024 * 1024):
+def process_file(
+    path: Path,
+    conn: sqlite3.Connection,
+    batch_size: int = 2000,
+    read_chunk_chars: int = 1024 * 1024,
+    replace_table: bool = True,
+):
     rows_iter = iter_caret_rows(path, read_chunk_chars=read_chunk_chars)
 
     try:
@@ -260,6 +268,12 @@ def process_file(path: Path, conn: sqlite3.Connection, batch_size: int = 2000, r
     table = sanitize_identifier(strip_version_suffix(path.stem))
 
     cur = conn.cursor()
+
+    # Re-importing into an existing database must not retain rows from an
+    # older version of the same base-data table. The refresh job already uses
+    # a new database file, but this also makes the standalone command safe.
+    if replace_table:
+        cur.execute(f'DROP TABLE IF EXISTS "{table}"')
 
     # Create table
     cols_def = ', '.join([f'"{h}" TEXT' for h in headers])
@@ -293,8 +307,9 @@ def process_file(path: Path, conn: sqlite3.Connection, batch_size: int = 2000, r
         conn.commit()
         inserted += len(to_insert)
 
+    action = 'Replaced' if replace_table else 'Appended to'
     if inserted > 0:
-        logging.info(f"Imported {inserted} rows into table '{table}' from {path.name}")
+        logging.info(f"{action} table '{table}' with {inserted} rows from {path.name}")
     else:
         logging.info(f"No data rows to insert for {path.name}")
 
@@ -310,6 +325,7 @@ def main():
     p.add_argument('--overwrite', action='store_true', help='Overwrite existing downloaded files')
     p.add_argument('--list-downloads', action='store_true', help='List downloaded files in --dir and exit')
     p.add_argument('--rename-db-tables', action='store_true', help='Rename existing DB tables by stripping trailing yyyymmdd* suffixes')
+    p.add_argument('--append', action='store_true', help='Append rows to existing tables (default replaces each imported table)')
     p.add_argument('--batch-size', type=int, default=2000, help='Rows per SQLite executemany batch (default: 2000)')
     p.add_argument('--read-chunk-chars', type=int, default=1024 * 1024, help='Chunk size for streaming parser (default: 1048576)')
     p.add_argument('--low-memory', action='store_true', help='Apply conservative SQLite memory PRAGMAs')
@@ -412,7 +428,13 @@ def main():
 
     for f in files:
         try:
-            process_file(f, conn, batch_size=args.batch_size, read_chunk_chars=args.read_chunk_chars)
+            process_file(
+                f,
+                conn,
+                batch_size=args.batch_size,
+                read_chunk_chars=args.read_chunk_chars,
+                replace_table=not args.append,
+            )
         except Exception as e:
             logging.error(f"Error processing {f.name}: {e}")
 

@@ -41,6 +41,10 @@ pip-wheel-metadata/
 basedata.db
 *.db
 *.sqlite3
+*.db-*
+*.db.*
+*.sqlite-*
+*.sqlite3-*
 
 # Docker
 docker-compose.override.yml

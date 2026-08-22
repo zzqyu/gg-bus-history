@@ -4,19 +4,25 @@ export function compareRoutes(
   a: { routeName?: string; routeId?: string },
   b: { routeName?: string; routeId?: string }
 ): number {
-  const na = String((a && (a.routeName || a.routeId)) || '')
-  const nb = String((b && (b.routeName || b.routeId)) || '')
-  const ma = na.match(/\d+/)
-  const mb = nb.match(/\d+/)
-  if (ma && mb) {
-    const va = Number(ma[0])
-    const vb = Number(mb[0])
-    if (va !== vb) return va - vb
-    return na.localeCompare(nb, undefined, { numeric: true, sensitivity: 'base' })
+  const na = String((a && (a.routeName || a.routeId)) || '').trim()
+  const nb = String((b && (b.routeName || b.routeId)) || '').trim()
+
+  // 노선 번호의 대시는 소수점처럼 취급한다. 예: 33-1 → 33.1,
+  // 11-2 → 11.2. H105처럼 숫자와 글자가 섞인 경우에도 숫자 부분을 기준으로
+  // 정렬한다.
+  const getNumericRouteValue = (name: string): number | null => {
+    const match = name.match(/(\d+)(?:-(\d+))?/)
+    if (!match) return null
+    const value = match[2] == null ? Number(match[1]) : Number(`${match[1]}.${match[2]}`)
+    return Number.isFinite(value) ? value : null
   }
-  if (ma && !mb) return -1
-  if (!ma && mb) return 1
-  return na.localeCompare(nb, undefined, { sensitivity: 'base' })
+
+  const va = getNumericRouteValue(na)
+  const vb = getNumericRouteValue(nb)
+  if (va != null && vb != null && va !== vb) return va - vb
+  if (va != null && vb == null) return -1
+  if (va == null && vb != null) return 1
+  return na.localeCompare(nb, undefined, { numeric: true, sensitivity: 'base' })
 }
 
 export function getGroupKey(g: Group): string {

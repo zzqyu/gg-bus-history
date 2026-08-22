@@ -17,6 +17,7 @@ import {
 } from '../../utils/realtimeUtils'
 import GlossarySheet from './GlossarySheet'
 import RouteBadge from './RouteBadge'
+import { compareRoutes } from '../../utils/routeUtils'
 
 type DatePresetKey = 'lastWeek' | 'yesterday' | 'twoWeeksAgo'
 
@@ -81,6 +82,48 @@ function formatBusDuration(entry: TimetableEntry | null): string {
 function truncateStationName(name?: string | null): string {
   const trimmed = String(name || '').trim()
   return trimmed.length > 10 ? `${trimmed.slice(0, 10)}…` : trimmed
+}
+
+function stationNameClass(name?: string | null): string {
+  return String(name || '').trim().length >= 8 ? 'text-[9px]' : ''
+}
+
+function StationNameTooltip({ name, className = '' }: { name?: string | null; className?: string }) {
+  const fullName = String(name || '').trim()
+  const [open, setOpen] = React.useState(false)
+  const tooltipId = React.useId()
+
+  if (!fullName) return <span className={className}>-</span>
+
+  return (
+    <span className="group relative inline-block max-w-full align-baseline">
+      <button
+        type="button"
+        title={fullName}
+        aria-label={`전체 정류장명: ${fullName}`}
+        aria-expanded={open}
+        aria-describedby={open ? tooltipId : undefined}
+        onClick={(event) => {
+          event.stopPropagation()
+          setOpen((value) => !value)
+        }}
+        className={`max-w-full cursor-help appearance-none border-0 bg-transparent p-0 text-left align-baseline ${className}`}
+      >
+        {truncateStationName(fullName)}
+      </button>
+      <span
+        id={tooltipId}
+        role="tooltip"
+        className={`pointer-events-none absolute left-0 top-full z-50 mt-1 max-w-[min(80vw,260px)] rounded-md bg-slate-900 px-2 py-1 text-[11px] font-semibold leading-4 text-white shadow-lg transition-opacity ${
+          open
+            ? 'visible opacity-100'
+            : 'invisible opacity-0 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100'
+        }`}
+      >
+        {fullName}
+      </span>
+    </span>
+  )
 }
 
 function confidenceText(confidence?: string | null): string {
@@ -229,7 +272,7 @@ export function TimetableRow({
   return (
     <li
       ref={rowRef}
-      className={`relative flex min-w-0 gap-1.5 border-b border-border px-3 py-4 sm:grid sm:grid-cols-[84px_minmax(130px,0.65fr)_minmax(0,0.9fr)] sm:px-5 ${
+      className={`relative grid min-w-0 grid-cols-[64px_minmax(0,1fr)_minmax(0,1fr)] gap-1.5 border-b border-border px-3 py-4 sm:grid-cols-[84px_minmax(130px,0.65fr)_minmax(0,0.9fr)] sm:px-5 ${
         highlighted ? 'bg-primary/10' : 'bg-card'
       }`}
     >
@@ -251,32 +294,32 @@ export function TimetableRow({
 
       </div>
 
-      {/* 모바일에서는 이 래퍼가 flex-col로 route-info/하차예상 박스를 각자 내용 높이만큼만
-          쌓는다 — 이전엔 그리드로 쌓아서, 왼쪽 열(승차시각·실시간·좌석) 내용이 길어지면 그리드
-          row 트랙이 그 높이에 맞춰 커져 하차예상 박스가 불필요하게 밀려 내려가는 문제가 있었다.
-          sm 이상에서는 display:contents로 자신은 사라지고 자식 두 개가 그리드에 직접 배치된다. */}
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:contents">
-        <div className="min-w-0 sm:pt-1">
+      {/* 정류장명은 11자부터 축약하므로 모바일에서도 노선 정보와 목적지 예상 영역을
+          같은 행의 세 번째 열에 배치한다. */}
+      <div className="contents">
+        <div className="col-start-2 min-w-0 self-start sm:pt-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className={`text-base font-extrabold ${getRouteTypeClass(entry.routeTypeCd)}`}>
               {entry.routeName || entry.routeId || '-'}
             </span>
             {typeLabel && <span className="text-xs font-semibold text-muted-foreground">{typeLabel}</span>}
           </div>
-          <p className="mt-1 truncate text-xs text-muted-foreground">
-            {entry.boardStationName ? truncateStationName(entry.boardStationName) : '-'} · {entry.orderGap ?? '-'}정거장
+          <p className="mt-1 text-xs text-muted-foreground">
+            <StationNameTooltip name={entry.boardStationName} className={stationNameClass(entry.boardStationName)} />{' '}
+            · {entry.orderGap ?? '-'}정거장
           </p>
         </div>
 
-        <div className="min-w-0 rounded-xl border border-primary/20 bg-primary/5 p-3 sm:col-start-3 sm:row-start-1">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="col-start-3 min-w-0 self-start rounded-xl border border-primary/20 bg-primary/5 p-2 sm:col-start-3 sm:row-start-1 sm:p-3">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-1.5">
             <div className="min-w-0">
-              <p className="truncate text-xs font-bold text-primary">
-                {entry.alightStationName ? truncateStationName(entry.alightStationName) : '목적지'} 하차예상
+              <p className="whitespace-nowrap text-xs font-bold text-primary">
+                <StationNameTooltip name={entry.alightStationName} className={stationNameClass(entry.alightStationName)} />{' '}
+                하차예상
               </p>
               <p className="mt-0.5 text-base font-extrabold tabular-nums text-primary">{alightText}</p>
             </div>
-            <div className="text-right">
+            <div className="shrink-0 text-right">
               <p className="text-xs font-semibold text-muted-foreground">버스 이동</p>
               <p className="mt-0.5 text-sm font-bold">{formatBusDuration(entry)}</p>
             </div>
@@ -302,7 +345,7 @@ export default function TimetableView({ combined, sday, onChange, realtimeByStat
       const routeId = String(entry.routeId || '').trim()
       if (routeId && !routes.has(routeId)) routes.set(routeId, entry)
     }
-    return Array.from(routes.values())
+    return Array.from(routes.values()).sort(compareRoutes)
   }, [entries])
 
   const selectedRouteId = routeEntries.some(
@@ -470,10 +513,10 @@ export default function TimetableView({ combined, sday, onChange, realtimeByStat
           </div>
         </div>
 
-        <div className="grid grid-cols-[64px_minmax(0,1fr)] gap-3 border-b border-border bg-muted px-3 py-3 text-xs font-bold text-muted-foreground sm:grid-cols-[84px_minmax(130px,0.65fr)_minmax(0,0.9fr)] sm:px-5">
+        <div className="grid grid-cols-[64px_minmax(0,1fr)_minmax(0,1fr)] gap-3 border-b border-border bg-muted px-3 py-3 text-xs font-bold text-muted-foreground sm:grid-cols-[84px_minmax(130px,0.65fr)_minmax(0,0.9fr)] sm:px-5">
           <span className="text-center">승차</span>
           <span>노선 · 탑승 정류장</span>
-          <span className="col-start-2 sm:col-start-3">목적지 하차 예상</span>
+          <span className="col-start-3 whitespace-nowrap">목적지 하차 예상</span>
         </div>
 
         {filtered.length > 0 ? (
