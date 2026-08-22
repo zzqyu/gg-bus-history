@@ -20,7 +20,7 @@ cd "$REPO_DIR"
 
 COMPOSE="docker-compose -f docker-compose.prod.yml"
 BRANCH="${1:-master}"
-SITE_URL="${DEPLOY_HEALTHCHECK_URL:-https://bustal-time.kro.kr/}"
+SITE_URL="${DEPLOY_HEALTHCHECK_URL:-https://bustal.kr/}"
 
 log() {
   echo "[deploy_web $(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -57,12 +57,25 @@ echo "$CHANGED" | sed 's/^/  /'
 
 WEB_PATTERN='^(pages/|components/|utils/|hooks/|lib/|public/|styles/|types/|package\.json$|package-lock\.json$|next\.config\.mjs$|tsconfig\.json$|postcss\.config\.js$|components\.json$|web/Dockerfile$)'
 API_PATTERN='^api/'
+CADDY_PATTERN='^Caddyfile\.prod$'
 
 web_changed=false
 echo "$CHANGED" | grep -qE "$WEB_PATTERN" && web_changed=true
 
 api_changed=false
 echo "$CHANGED" | grep -qE "$API_PATTERN" && api_changed=true
+
+caddy_changed=false
+echo "$CHANGED" | grep -qE "$CADDY_PATTERN" && caddy_changed=true
+
+if [ "$caddy_changed" = true ]; then
+  log "Caddyfile.prod 변경 감지 — 설정 검증 및 reload"
+  $COMPOSE run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+  $COMPOSE up -d caddy
+  $COMPOSE exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+else
+  log "Caddyfile.prod 변경 없음 — caddy 재로드 스킵"
+fi
 
 if [ "$web_changed" = true ]; then
   if echo "$CHANGED" | grep -qE '^web/Dockerfile$'; then

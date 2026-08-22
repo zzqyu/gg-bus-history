@@ -3,8 +3,9 @@
     email wjdrb0626@naver.com
 }
 
-# Staging site (testing). When ready for production, remove the `acme_ca` line above.
-bustal-time.kro.kr {
+# The canonical site. Caddy obtains and renews the Let's Encrypt certificate
+# automatically and stores it in the caddy_data volume.
+bustal.kr {
     tls {
         protocols tls1.2
     }
@@ -22,4 +23,19 @@ bustal-time.kro.kr {
     header Referrer-Policy "no-referrer-when-downgrade"
     # Upgrade insecure requests to HTTPS and allow typical resources
     header Content-Security-Policy "upgrade-insecure-requests; default-src 'self' 'unsafe-inline' https: data:"
+}
+
+# Keep HTTP redirects explicit so the public contract is a 301 (rather than
+# Caddy's default automatic-HTTPS 308), while preserving path and query.
+http://bustal.kr {
+    redir https://bustal.kr{uri} 301
+}
+
+http://www.bustal.kr, https://www.bustal.kr {
+    redir https://bustal.kr{uri} 301
+}
+
+# Keep the old certificate active while the old hostname is migrated.
+http://bustal-time.kro.kr, https://bustal-time.kro.kr {
+    redir https://bustal.kr{uri} 301
 }
