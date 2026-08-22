@@ -27,6 +27,7 @@ import TimetableView from '../components/result/TimetableView'
 import DaySwitcher, { getDefaultSday } from '../components/result/DaySwitcher'
 import useRealtimeArrival from '../hooks/useRealtimeArrival'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../components/ui/collapsible'
+import { SITE_TITLE, SITE_URL } from '../utils/site'
 
 // Dev StrictMode(초기 마운트 이중 실행)에서도 동일 쿼리의 중복 호출을 막기 위한
 // 브라우저 전역 in-flight/cache 저장소
@@ -1336,7 +1337,7 @@ export default function Home() {
       if (bt) params.set('base_time', bt)
       const configuredBase = (process.env && process.env.NEXT_PUBLIC_SHARE_BASE_URL) || ''
       const runtimeBase = typeof window !== 'undefined'
-        ? window.location.origin + window.location.pathname : ''
+        ? window.location.origin + window.location.pathname : SITE_URL
       const base = String(configuredBase || runtimeBase).trim()
       const qs = params.toString()
       return qs ? `${base}?${qs}` : base
@@ -2084,7 +2085,7 @@ export default function Home() {
   return (
     <div className="font-sans text-slate-900">
       <Head>
-        <title>버스탈시간-경기도 버스 시간 이력 조회 서비스</title>
+        <title>{SITE_TITLE}</title>
       </Head>
 
       <div id="app-header" className="sticky top-0 z-10 w-full bg-white border-b border-slate-200">
