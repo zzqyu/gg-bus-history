@@ -28,7 +28,9 @@ log() {
 
 # Caddyfile.prod는 운영 전용 커스터마이징(보안 헤더, 별도 사이트 라우팅 등)이
 # 항상 로컬에서만 수정된 채(uncommitted) 유지된다 — 이건 정상이니 dirty 체크에서 뺀다.
-dirty="$(git status --porcelain -- ':!Caddyfile.prod' || true)"
+# untracked 파일(백업본, diag/ 등 서버에 원래 있던 것들)도 git pull --ff-only에
+# 영향을 주지 않으므로 체크 대상에서 제외한다 — tracked 파일의 "수정"만 본다.
+dirty="$(git status --porcelain --untracked-files=no -- ':!Caddyfile.prod' || true)"
 if [ -n "$dirty" ]; then
   log "경고: Caddyfile.prod 외에 커밋되지 않은 변경사항이 있습니다 — 배포를 중단합니다."
   echo "$dirty"
