@@ -69,10 +69,14 @@ caddy_changed=false
 echo "$CHANGED" | grep -qE "$CADDY_PATTERN" && caddy_changed=true
 
 if [ "$caddy_changed" = true ]; then
-  log "Caddyfile.prod 변경 감지 — 설정 검증 및 reload"
-  $COMPOSE run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+  log "Caddyfile.prod 변경 감지 — 무중단 설정 검증 및 reload"
   $COMPOSE up -d caddy
-  $COMPOSE exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+  # Git checkout can replace the bind-mounted file's inode. Copy the new
+  # config into the running container before validating/reloading so Caddy
+  # does not keep reading the old inode, and avoid interrupting other sites.
+  $COMPOSE exec -T caddy sh -c 'cat > /tmp/Caddyfile.deploy' < Caddyfile.prod
+  $COMPOSE exec -T caddy caddy validate --config /tmp/Caddyfile.deploy --adapter caddyfile
+  $COMPOSE exec -T caddy caddy reload --config /tmp/Caddyfile.deploy --adapter caddyfile
 else
   log "Caddyfile.prod 변경 없음 — caddy 재로드 스킵"
 fi
