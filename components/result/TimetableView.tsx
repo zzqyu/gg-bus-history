@@ -18,6 +18,7 @@ import {
 import GlossarySheet from './GlossarySheet'
 import RouteBadge from './RouteBadge'
 import { compareRoutes } from '../../utils/routeUtils'
+import { StationNameTooltip, stationNameClass } from './StationNameTooltip'
 
 type DatePresetKey = 'lastWeek' | 'yesterday' | 'twoWeeksAgo'
 
@@ -76,54 +77,6 @@ function formatBusDuration(entry: TimetableEntry | null): string {
   const [hours, minutes] = value.split(':').map(Number)
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return '-'
   return hours > 0 ? `${hours}시간 ${minutes}분` : `${minutes}분`
-}
-
-/** 정류장명이 11자 이상이면 10자까지만 보여주고 말줄임표를 붙인다. */
-function truncateStationName(name?: string | null): string {
-  const trimmed = String(name || '').trim()
-  return trimmed.length > 10 ? `${trimmed.slice(0, 10)}…` : trimmed
-}
-
-function stationNameClass(name?: string | null): string {
-  return String(name || '').trim().length >= 8 ? 'text-[9px]' : ''
-}
-
-function StationNameTooltip({ name, className = '' }: { name?: string | null; className?: string }) {
-  const fullName = String(name || '').trim()
-  const [open, setOpen] = React.useState(false)
-  const tooltipId = React.useId()
-
-  if (!fullName) return <span className={className}>-</span>
-
-  return (
-    <span className="group relative inline-block max-w-full align-baseline">
-      <button
-        type="button"
-        title={fullName}
-        aria-label={`전체 정류장명: ${fullName}`}
-        aria-expanded={open}
-        aria-describedby={open ? tooltipId : undefined}
-        onClick={(event) => {
-          event.stopPropagation()
-          setOpen((value) => !value)
-        }}
-        className={`max-w-full cursor-help appearance-none border-0 bg-transparent p-0 text-left align-baseline ${className}`}
-      >
-        {truncateStationName(fullName)}
-      </button>
-      <span
-        id={tooltipId}
-        role="tooltip"
-        className={`pointer-events-none absolute left-0 top-full z-50 mt-1 max-w-[min(80vw,260px)] rounded-md bg-slate-900 px-2 py-1 text-[11px] font-semibold leading-4 text-white shadow-lg transition-opacity ${
-          open
-            ? 'visible opacity-100'
-            : 'invisible opacity-0 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100'
-        }`}
-      >
-        {fullName}
-      </span>
-    </span>
-  )
 }
 
 function confidenceText(confidence?: string | null): string {
@@ -272,7 +225,7 @@ export function TimetableRow({
   return (
     <li
       ref={rowRef}
-      className={`relative grid min-w-0 grid-cols-[64px_minmax(0,1fr)_minmax(0,1fr)] gap-1.5 border-b border-border px-3 py-4 sm:grid-cols-[84px_minmax(130px,0.65fr)_minmax(0,0.9fr)] sm:px-5 ${
+      className={`relative grid min-w-0 grid-cols-[64px_minmax(0,0.65fr)_minmax(0,0.9fr)] gap-1.5 border-b border-border px-3 py-3 sm:grid-cols-[84px_minmax(130px,0.65fr)_minmax(0,0.9fr)] sm:px-5 sm:py-4 ${
         highlighted ? 'bg-primary/10' : 'bg-card'
       }`}
     >
@@ -305,8 +258,7 @@ export function TimetableRow({
             {typeLabel && <span className="text-xs font-semibold text-muted-foreground">{typeLabel}</span>}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            <StationNameTooltip name={entry.boardStationName} className={stationNameClass(entry.boardStationName)} />{' '}
-            · {entry.orderGap ?? '-'}정거장
+            <StationNameTooltip name={entry.boardStationName} className={stationNameClass(entry.boardStationName)} />
           </p>
         </div>
 
@@ -314,14 +266,13 @@ export function TimetableRow({
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-1.5">
             <div className="min-w-0">
               <p className="whitespace-nowrap text-xs font-bold text-primary">
-                <StationNameTooltip name={entry.alightStationName} className={stationNameClass(entry.alightStationName)} />{' '}
-                하차예상
+                <StationNameTooltip name={entry.alightStationName} className={stationNameClass(entry.alightStationName)} />
               </p>
               <p className="mt-0.5 text-base font-extrabold tabular-nums text-primary">{alightText}</p>
             </div>
             <div className="shrink-0 text-right">
-              <p className="text-xs font-semibold text-muted-foreground">버스 이동</p>
-              <p className="mt-0.5 text-sm font-bold">{formatBusDuration(entry)}</p>
+              <p className="text-sm font-bold">{formatBusDuration(entry)}</p>
+              <p className="text-[10px] text-muted-foreground">{entry.orderGap ?? '-'}정거장</p>
             </div>
           </div>
           {entry.inferred && (
@@ -421,23 +372,11 @@ export default function TimetableView({ combined, sday, onChange, realtimeByStat
   }, [filtered, realtimeByStationId, sday])
 
   const rowRefs = React.useRef<Map<number, HTMLLIElement>>(new Map())
-  const listContainerRef = React.useRef<HTMLOListElement>(null)
 
-  // 목록 자체(<ol>, max-h-[720px] overflow-y-auto)의 스크롤만 움직인다. 네이티브
-  // `scrollIntoView`는 이 컨테이너뿐 아니라 상위의 모든 스크롤 가능한 조상(페이지 전체 포함)까지
-  // 같이 스크롤시켜서, 목록 위에 있는 "결과 카드/통합 시간이력" 전환 탭이 뷰포트 밖으로 밀려나는
-  // 문제가 있었다(P4-T10 검증 중 발견). offsetTop 기반으로 컨테이너의 scrollTop만 계산해서
-  // 페이지 스크롤에는 영향을 주지 않게 한다.
   const scrollToHighlighted = React.useCallback(() => {
-    const container = listContainerRef.current
     const el = rowRefs.current.get(highlightedIndex)
-    if (!container || !el) return
-    // offsetTop은 offsetParent 체인에 따라 컨테이너 기준이 아닐 수 있어, 뷰포트 기준
-    // getBoundingClientRect로 컨테이너 대비 상대 위치를 구한다(오프셋 부모 가정 없이 정확함).
-    const containerRect = container.getBoundingClientRect()
-    const targetRect = el.getBoundingClientRect()
-    const delta = (targetRect.top - containerRect.top) - (container.clientHeight / 2 - el.clientHeight / 2)
-    container.scrollTo({ top: Math.max(0, container.scrollTop + delta), behavior: 'smooth' })
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [highlightedIndex])
 
   // 기준일·노선 필터가 바뀌어 강조 대상이 달라질 때마다 자동으로 그 행이 보이게 스크롤한다.
@@ -456,7 +395,16 @@ export default function TimetableView({ combined, sday, onChange, realtimeByStat
         <div className="border-b border-border p-4 sm:p-6">
           <div className="flex items-center justify-between gap-3">
             <p id="integrated-history-title" className="text-sm font-bold text-primary">통합시간이력</p>
-            <div className="shrink-0">
+            <div className="flex shrink-0 items-center gap-1.5">
+              {nextEntry && (
+                <button
+                  type="button"
+                  onClick={scrollToHighlighted}
+                  className="touch-target rounded-full border border-transparent bg-primary px-2 py-0.5 text-[11px] font-bold text-primary-foreground hover:bg-primary/90"
+                >
+                  현재시각
+                </button>
+              )}
               <GlossarySheet />
             </div>
           </div>
@@ -464,20 +412,8 @@ export default function TimetableView({ combined, sday, onChange, realtimeByStat
             이 구간의 모든 노선 운행 이력을 출발시각순으로 모아 탑승·하차 예상시각을 보여줍니다.
           </p>
 
-          {nextEntry && (
-            <div className="mt-3">
-              <button
-                type="button"
-                onClick={scrollToHighlighted}
-                className="touch-target rounded-full border border-transparent bg-primary px-2 py-0.5 text-[11px] font-bold text-primary-foreground hover:bg-primary/90"
-              >
-                현재시각
-              </button>
-            </div>
-          )}
-
           <div
-            className={`flex max-w-full items-center gap-1.5 overflow-x-auto overflow-y-hidden pb-1 ${nextEntry ? 'mt-1.5' : 'mt-3'}`}
+            className="mt-3 flex max-w-full items-center gap-1.5 overflow-x-auto overflow-y-hidden pb-1"
             aria-label="노선 필터"
           >
             <button
@@ -513,14 +449,14 @@ export default function TimetableView({ combined, sday, onChange, realtimeByStat
           </div>
         </div>
 
-        <div className="grid grid-cols-[64px_minmax(0,1fr)_minmax(0,1fr)] gap-3 border-b border-border bg-muted px-3 py-3 text-xs font-bold text-muted-foreground sm:grid-cols-[84px_minmax(130px,0.65fr)_minmax(0,0.9fr)] sm:px-5">
+        <div className="grid grid-cols-[64px_minmax(0,0.65fr)_minmax(0,0.9fr)] gap-3 border-b border-border bg-muted px-3 py-3 text-xs font-bold text-muted-foreground sm:grid-cols-[84px_minmax(130px,0.65fr)_minmax(0,0.9fr)] sm:px-5">
           <span className="text-center">승차</span>
           <span>노선 · 탑승 정류장</span>
           <span className="col-start-3 whitespace-nowrap">목적지 하차 예상</span>
         </div>
 
         {filtered.length > 0 ? (
-          <ol ref={listContainerRef} className="max-h-[720px] overflow-y-auto overscroll-contain" aria-label="통합 시간이력 목록">
+          <ol aria-label="통합 시간이력 목록">
             {filtered.map((entry, index) => {
               const matchedPredictIndex = realtimeMatchByIndex.get(index)
               return (

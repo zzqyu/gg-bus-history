@@ -47,6 +47,10 @@ python import_to_sqlite.py --dir basedata --db basedata.db
 - `tools/refresh_basedata.sh` — `basedata.db`를 정부 공공데이터 최신본으로 매일 자동 갱신한다. 새 파일에 임포트 후 핵심 테이블 검증을 통과해야만 교체하며, 운영 서버에 systemd 타이머(`tools/systemd/bustal-refresh.timer`, 매일 05:00 KST)로 등록돼 있다. 자세한 배경은 `README_import_sqlite.md` 참고.
 - `tools/screenshot/capture.mjs` — dev 서버 화면을 Playwright로 캡처해 UI 변경을 눈으로 확인하는 범용 스크립트. Claude 전용 스킬이 아니라 순수 node 스크립트라 다른 에이전트(Codex 등)도 그대로 쓸 수 있다. 최초 1회 `cd tools/screenshot && npm install && npx playwright install chromium` 필요 — 사용법은 `tools/screenshot/README.md` 참고.
 
+## 작업 관례
+
+- Plan 모드에서 작성하는 플랜 파일은 홈 디렉터리(`~/.claude/plans/`)가 아니라 이 저장소 안의 `plans/`에 저장한다. 파일명은 자동 생성된 임의 슬러그 대신 내용을 설명하는 이름을 사용한다(기존 예: `plans/ui-ux/`).
+
 ## 아키텍처
 
 **프론트엔드 → API 프록시 → FastAPI → SQLite** 구조이며, 브라우저가 FastAPI를 직접 호출하지 않습니다.

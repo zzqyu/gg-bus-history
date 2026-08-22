@@ -1,4 +1,5 @@
 import Head from 'next/head'
+import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
@@ -19,7 +20,6 @@ import { toCoordString, parseCoordValue, getPlaceDisplayText } from '../utils/ma
 import PlaceSearchInput from '../components/PlaceSearchInput'
 import SearchResultsPanel from '../components/SearchResultsPanel'
 import MapControls from '../components/MapControls'
-import PendingMapPointBar from '../components/PendingMapPointBar'
 import SharePreviewModal from '../components/SharePreviewModal'
 import { buildStationNumberMaps, getAlightStationNumber, getBoardStationNumber } from '../utils/stationNumberUtils'
 import ResultCard from '../components/result/ResultCard'
@@ -73,7 +73,6 @@ export default function Home() {
   const [endSearchMsg, setEndSearchMsg] = useState('')
   const [startSearchOpened, setStartSearchOpened] = useState(false)
   const [endSearchOpened, setEndSearchOpened] = useState(false)
-  const [pendingMapPoint, setPendingMapPoint] = useState<PendingMapPoint | null>(null)
   const [mapPickTarget, setMapPickTarget] = useState<'start' | 'end' | null>(null)
   const [mapError, setMapError] = useState('')
   const [showGroupList, setShowGroupList] = useState(true)
@@ -563,6 +562,17 @@ export default function Home() {
     }
   }
 
+  // 지도 우선 모드(첫 화면·재검색 화면)에서는 검색 위젯이 지도 하단을 덮는 절대 위치
+  // 오버레이라서, setBounds가 위젯 뒤에 가려질 영역까지 "보이는 영역"으로 계산해 버린다.
+  // 위젯 실제 높이만큼 하단 패딩을 줘서 출발/도착 지점이 위젯에 가리지 않게 한다.
+  function getMapBoundsPadding() {
+    const base = 40
+    if (!isMapFirstMode) return [base, base, base, base] as const
+    const panel = document.getElementById('search-panel')
+    const panelHeight = panel ? panel.getBoundingClientRect().height : 0
+    return [base, base, panelHeight + 24, base] as const
+  }
+
   function focusStartEndOnMap() {
     const kakao = (window as any).kakao
     if (!mapRef.current || typeof window === 'undefined' || !kakao || !kakao.maps) return
@@ -581,7 +591,8 @@ export default function Home() {
     const bounds = new kakao.maps.LatLngBounds()
     bounds.extend(startPos)
     bounds.extend(endPos)
-    mapRef.current.setBounds(bounds)
+    const [top, right, bottom, left] = getMapBoundsPadding()
+    mapRef.current.setBounds(bounds, top, right, bottom, left)
   }
 
   function focusSelectedGroupOnMap(g: Group) {
@@ -605,7 +616,8 @@ export default function Home() {
     bounds.extend(new kakao.maps.LatLng(endLat, endLng))
     bounds.extend(new kakao.maps.LatLng(boardLat, boardLng))
     bounds.extend(new kakao.maps.LatLng(alightLat, alightLng))
-    mapRef.current.setBounds(bounds)
+    const [top, right, bottom, left] = getMapBoundsPadding()
+    mapRef.current.setBounds(bounds, top, right, bottom, left)
   }
 
   function compactHeaderPlaceText(text: string): string {
@@ -812,7 +824,6 @@ export default function Home() {
   function beginMapPointPick(type: 'start' | 'end') {
     mapPickTargetRef.current = type
     setMapPickTarget(type)
-    setPendingMapPoint(null)
     setPreSearchPanelOpen(true)
   }
 
@@ -835,7 +846,6 @@ export default function Home() {
     }
     mapPickTargetRef.current = null
     setMapPickTarget(null)
-    setPendingMapPoint(null)
     resetTimetableViews()
 
     resolveAddressTextByCoord(lon, lat).then((addressText) => {
@@ -845,11 +855,6 @@ export default function Home() {
     }).catch(() => {
       // 좌표와 좌표 텍스트는 이미 반영됐으므로 주소 변환 실패는 무시한다.
     })
-  }
-
-  function applyPendingMapPoint(type: 'start' | 'end') {
-    if (!pendingMapPoint) return
-    applyMapPoint(type, pendingMapPoint)
   }
 
   function searchPlace(type: 'start' | 'end') {
@@ -1760,15 +1765,11 @@ export default function Home() {
           }
         }
         kakao.maps.event.addListener(map, 'click', (mouseEvent: any) => {
+          const target = mapPickTargetRef.current
+          if (!target) return
           const latLng = mouseEvent.latLng
           const point = { lon: toCoordString(latLng.getLng()), lat: toCoordString(latLng.getLat()) }
-          const target = mapPickTargetRef.current
-          if (target) {
-            applyMapPoint(target, point)
-            return
-          }
-          setPendingMapPoint(point)
-          setPreSearchPanelOpen(true)
+          applyMapPoint(target, point)
         })
         // Trigger post-init effects so latest URL/query state values are rendered
         setMapReadyTick((v) => v + 1)
@@ -2073,12 +2074,49 @@ export default function Home() {
     : 'safe-area-bottom absolute inset-x-0 bottom-0 z-10 sm:flex sm:justify-center sm:p-4'
   const searchPanelInnerClassName = !isMapFirstMode
     ? 'rounded-2xl border border-border bg-card p-4 text-card-foreground shadow-sm sm:p-5'
-    : 'w-full rounded-t-3xl border border-border bg-card p-4 shadow-2xl sm:max-w-[480px] sm:rounded-3xl'
+    : 'w-full rounded-t-3xl border border-border bg-card p-3 shadow-2xl sm:max-w-[480px] sm:rounded-3xl'
   const mapCardOuterClassName = !isMapFirstMode
     ? 'overflow-hidden rounded-2xl border border-border bg-card shadow-sm'
     : 'absolute inset-0 -z-10'
   const mapDivClassName = !isMapFirstMode ? 'w-full' : 'h-full w-full'
   const mapDivStyle = !isMapFirstMode ? { height: 360 } : undefined
+
+  // 헤더(결과 화면)와 첫 화면 플로팅 배지 양쪽에서 같은 PWA 설치 버튼을 쓰므로 한 번만 정의한다.
+  const installButtonNode = !isStandalone && (deferredInstallPrompt || isIos) && (
+    <div className="relative flex items-center">
+      <button
+        type="button"
+        onClick={handleInstallPwa}
+        className="flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-50"
+        title="홈화면에 추가"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+          <line x1="12" y1="18" x2="12" y2="18.01"/>
+          <line x1="12" y1="7" x2="12" y2="13"/>
+          <polyline points="9 10 12 7 15 10"/>
+        </svg>
+        <span className="hidden sm:inline">홈화면 추가</span>
+      </button>
+      {isIos && showIosInstallTip && (
+        <div className="absolute right-0 top-full mt-1 z-50 w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-lg text-xs text-slate-700">
+          <div className="font-semibold mb-1.5">홈화면에 추가하는 방법 (iOS)</div>
+          <ol className="list-decimal pl-4 space-y-1">
+            <li>브라우저 앱의 공유 버튼을 누르세요</li>
+            <li><strong>홈 화면에 추가</strong>를 선택하세요</li>
+            <li><strong>추가</strong>를 탭하면 완료!</li>
+          </ol>
+          <button
+            type="button"
+            onClick={() => setShowIosInstallTip(false)}
+            className="mt-2 text-blue-600 underline"
+          >
+            닫기
+          </button>
+        </div>
+      )}
+    </div>
+  )
 
   // ─── Render ────────────────────────────────────────────────────────
 
@@ -2088,68 +2126,33 @@ export default function Home() {
         <title>{SITE_TITLE}</title>
       </Head>
 
-      <div id="app-header" className="sticky top-0 z-10 w-full bg-white border-b border-slate-200">
-        <div className="mx-auto w-full max-w-[1200px] px-5 py-2 flex items-start justify-between">
-          <div>
-            {/* P4-T5 최종검증에서 발견: CJK 헤더가 단어 중간에서 줄바꿈되는 문제(Phase 2에서
-                이미 발견해 P2-TYPO-BREAKAGE.md에 기록해뒀으나 Phase 3/4 어디서도 실제로 고치지
-                않고 있었다). break-keep + 좁은 화면에서는 세로로 쌓기로 수정 */}
-            <div className={hasSearchResult ? 'flex flex-col gap-0.5 sm:flex-row sm:items-end sm:gap-2' : ''}>
-              <h1 className="break-keep text-xl font-bold">버스탈시간</h1>
-              <h3 className="break-keep text-m font-semibold">경기도 버스 시간 이력 조회 서비스</h3>
-            </div>
-            {hasSearchResult && (headerStartText || headerEndText) && (
-              <p className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-medium text-slate-600 sm:text-sm">
-                {headerStartText || '-'}
-                <span className="mx-1 text-slate-400">→</span>
-                {headerEndText || '-'}
-              </p>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-          {hasSearchResult && (
-            <button type="button" onClick={handleShare} title="검색 결과 공유" aria-label="검색 결과 공유" className="btn-ui h-8 px-3">
-              공유
-            </button>
-          )}
-          {!isStandalone && (deferredInstallPrompt || isIos) && (
-            <div className="relative flex items-center">
-              <button
-                type="button"
-                onClick={handleInstallPwa}
-                className="flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-50"
-                title="홈화면에 추가"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
-                  <line x1="12" y1="18" x2="12" y2="18.01"/>
-                  <line x1="12" y1="7" x2="12" y2="13"/>
-                  <polyline points="9 10 12 7 15 10"/>
-                </svg>
-                <span className="hidden sm:inline">홈화면 추가</span>
-              </button>
-              {isIos && showIosInstallTip && (
-                <div className="absolute right-0 top-full mt-1 z-50 w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-lg text-xs text-slate-700">
-                  <div className="font-semibold mb-1.5">홈화면에 추가하는 방법 (iOS)</div>
-                  <ol className="list-decimal pl-4 space-y-1">
-                    <li>브라우저 앱의 공유 버튼을 누르세요</li>
-                    <li><strong>홈 화면에 추가</strong>를 선택하세요</li>
-                    <li><strong>추가</strong>를 탭하면 완료!</li>
-                  </ol>
-                  <button
-                    type="button"
-                    onClick={() => setShowIosInstallTip(false)}
-                    className="mt-2 text-blue-600 underline"
-                  >
-                    닫기
-                  </button>
-                </div>
+      {!isMapFirstMode && (
+        <div id="app-header" className="sticky top-0 z-10 w-full bg-white border-b border-slate-200">
+          <div className="mx-auto flex w-full max-w-[1200px] items-start justify-between gap-3 px-5 py-1.5">
+            <div className="min-w-0">
+              <div className="flex items-baseline gap-1.5">
+                <h1 className="break-keep text-sm font-bold">버스탈시간</h1>
+                <span className="hidden break-keep text-xs text-slate-500 sm:inline">경기도 버스 시간 이력 조회 서비스</span>
+              </div>
+              {hasSearchResult && (headerStartText || headerEndText) && (
+                <p className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-medium text-slate-600 sm:text-sm">
+                  {headerStartText || '-'}
+                  <span className="mx-1 text-slate-400">→</span>
+                  {headerEndText || '-'}
+                </p>
               )}
             </div>
-          )}
+            <div className="flex shrink-0 items-center gap-2">
+              {hasSearchResult && (
+                <button type="button" onClick={handleShare} title="검색 결과 공유" aria-label="검색 결과 공유" className="btn-ui h-8 px-3">
+                  공유
+                </button>
+              )}
+              {installButtonNode}
+            </div>
           </div>
         </div>
-      </div>
+      )}
       <div className="p-2 sm:p-2.5 !pt-0">
       <div className="mx-auto w-full max-w-[1200px]">
 
@@ -2158,9 +2161,14 @@ export default function Home() {
           항상 같은 자리(마지막 자식)에 있다 — className/style만 조건부로 바뀐다. 절대로
           이 블록을 검색 전/후 두 개의 서로 다른 JSX로 나누지 말 것(지도 리마운트로 파괴됨). */}
       <div className={mapSectionClassName} style={mapSectionStyle}>
-        {/* 지도/검색 탭에서 지도 위에 떠 있는 안내 배너 */}
+        {/* 지도/검색 탭(첫 화면, 그리고 "재검색"으로 돌아온 화면)에서 지도 위에 떠 있는 안내 배너.
+            이 모드에서는 고정 헤더 대신 이 배너 위에 설치 배지를 얹는다. 브랜드 타이틀은
+            아래 검색 위젯 좌상단으로 옮겼다. */}
         {isMapFirstMode && (
-          <div className="pointer-events-none absolute left-0 right-0 top-0 z-10 p-3 sm:p-4">
+          <div className="pointer-events-none absolute left-0 right-0 top-0 z-10 space-y-2 p-3 sm:p-4">
+            <div className="pointer-events-auto flex justify-end">
+              {installButtonNode}
+            </div>
             <div className="pointer-events-auto relative z-10 mx-auto max-w-[480px] rounded-2xl border border-badge-realtime-border bg-badge-realtime-bg/95 p-3 text-badge-realtime-fg shadow-lg backdrop-blur-sm">
               <p className="text-xs font-bold leading-5">
                 출발지·도착지를 검색하거나 지도에서 직접 선택해 버스 경로를 찾아보세요
@@ -2171,9 +2179,43 @@ export default function Home() {
 
         {!focusedCardOnly && (
           <div className={searchPanelOuterClassName}>
-            <div className={searchPanelInnerClassName}>
+            <div id="search-panel" className={searchPanelInnerClassName}>
               {isMapFirstMode && (
-                <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-muted-foreground/30 sm:hidden" aria-hidden="true" />
+                <>
+                  <div className="mx-auto mb-1.5 h-1 w-10 rounded-full bg-muted-foreground/30 sm:hidden" aria-hidden="true" />
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <h1 className="break-keep text-base font-bold text-foreground">버스탈시간</h1>
+                      <Link
+                        href="/about"
+                        className="touch-target inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-1 text-xs font-semibold text-muted-foreground hover:bg-muted"
+                      >
+                        <span aria-hidden="true">ⓘ</span> 소개
+                      </Link>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <button type="button" className="btn-ui" onClick={focusStartEndOnMap}>
+                        한눈에 보기
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ui disabled:opacity-50"
+                        onClick={moveMapToCurrentLocation}
+                        disabled={locatingMap}
+                        title="현재 위치로 지도 이동"
+                      >
+                        {locatingMap ? (
+                          <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-700 border-t-transparent" aria-hidden="true" />
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" className="inline-block h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                            <path d="M21 10c0 6-9 13-9 13S3 16 3 10a9 9 0 0118 0z" />
+                            <circle cx="12" cy="10" r="3" />
+                          </svg>
+                        )} 현재 위치
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
               {!isMapFirstMode && (
                 <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -2185,7 +2227,7 @@ export default function Home() {
                 </div>
               )}
 
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {/* Step 1: 출발/도착 입력 — 검색 전/후 항상 노출 */}
                 <div className={!isMapFirstMode ? 'rounded-xl border border-border bg-background p-3 sm:p-4' : ''}>
                   {!isMapFirstMode && (
@@ -2252,69 +2294,27 @@ export default function Home() {
                   </div>
                 )}
 
+                {/* 반경 설정은 지도 핀 찍기와 달리 자주 조정하는 값이라 접어두지 않고 항상 보이게 한다. */}
                 {isMapFirstMode && (
-                  <div className="rounded-xl border border-primary/20 bg-primary/[0.04] p-3">
-                    <div className="mb-2 flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-bold text-foreground">지도에서 직접 지정</p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">버튼을 누른 뒤 지도에서 해당 지점을 선택하세요.</p>
-                      </div>
-                      {mapPickTarget && (
-                        <button
-                          type="button"
-                          onClick={cancelMapPointPick}
-                          className="touch-target shrink-0 text-xs font-semibold text-muted-foreground underline underline-offset-2"
-                        >
-                          취소
-                        </button>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        aria-pressed={mapPickTarget === 'start'}
-                        onClick={() => beginMapPointPick('start')}
-                        className={`min-h-10 rounded-lg border px-3 py-2 text-sm font-bold transition ${mapPickTarget === 'start' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/30 bg-background text-primary hover:bg-primary/10'}`}
-                      >
-                        <span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-origin align-middle" aria-hidden="true" />
-                        출발지 선택
-                      </button>
-                      <button
-                        type="button"
-                        aria-pressed={mapPickTarget === 'end'}
-                        onClick={() => beginMapPointPick('end')}
-                        className={`min-h-10 rounded-lg border px-3 py-2 text-sm font-bold transition ${mapPickTarget === 'end' ? 'border-destination bg-destination text-white' : 'border-destination/30 bg-background text-destination hover:bg-destination/10'}`}
-                      >
-                        <span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-destination align-middle" aria-hidden="true" />
-                        도착지 선택
-                      </button>
-                    </div>
-                    {mapPickTarget && (
-                      <p className="mt-2 text-center text-xs font-semibold text-primary" role="status">
-                        지도에서 {mapPickTarget === 'start' ? '출발지' : '도착지'}를 눌러주세요.
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {pendingMapPoint && (
-                  <PendingMapPointBar
-                    point={pendingMapPoint}
-                    onSetStart={() => applyPendingMapPoint('start')}
-                    onSetEnd={() => applyPendingMapPoint('end')}
-                    onClear={() => setPendingMapPoint(null)}
+                  <MapControls
+                    startRadius={startRadius}
+                    endRadius={endRadius}
+                    onStartRadiusChange={handleStartRadiusChange}
+                    onEndRadiusChange={handleEndRadiusChange}
                   />
                 )}
 
-                {/* Step 2: 지도에서 직접 조정 — 검색 후엔 항상 펼침, 검색 전엔 접혔다 펼치는 형태 */}
+                {/* Step 2: 지도에서 직접 지정/조정 — 검색 후엔 항상 펼침, 검색 전엔 접혔다 펼치는 형태.
+                    지도 핀 찍기(출발/도착 선택 버튼)와 반경 조정을 한 토글 아래로 묶어서
+                    첫 화면 기본 높이를 줄인다 — 둘 다 검색창 입력의 보조 수단이라 상시 노출이 필요 없다. */}
                 <Collapsible open={!isMapFirstMode ? true : preSearchPanelOpen} onOpenChange={setPreSearchPanelOpen}>
                   {isMapFirstMode && (
                     <CollapsibleTrigger asChild>
                       <button
                         type="button"
-                        className="touch-target flex min-h-9 w-full items-center justify-center gap-1 text-xs font-semibold text-muted-foreground"
+                        className="touch-target flex min-h-8 w-full items-center justify-center gap-1 text-xs font-semibold text-muted-foreground"
                       >
-                        {preSearchPanelOpen ? '반경 설정 접기' : '반경 설정 펼치기'}
+                        {preSearchPanelOpen ? '지도에서 직접 지정 접기' : '지도에서 직접 지정 펼치기'}
                         <span aria-hidden="true" className={`transition-transform ${preSearchPanelOpen ? 'rotate-180' : ''}`}>⌄</span>
                       </button>
                     </CollapsibleTrigger>
@@ -2331,15 +2331,59 @@ export default function Home() {
                         </div>
                       )}
 
-                      <MapControls
-                        startRadius={startRadius}
-                        endRadius={endRadius}
-                        onStartRadiusChange={handleStartRadiusChange}
-                        onEndRadiusChange={handleEndRadiusChange}
-                        onFocusStartEnd={focusStartEndOnMap}
-                        onMoveToCurrentLocation={moveMapToCurrentLocation}
-                        locatingMap={locatingMap}
-                      />
+                      {isMapFirstMode && (
+                        <div className="mb-2 rounded-xl border border-primary/20 bg-primary/[0.04] p-3">
+                          <div className="mb-2 flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-bold text-foreground">지도에서 직접 지정</p>
+                              <p className="mt-0.5 text-xs text-muted-foreground">버튼을 누른 뒤 지도에서 해당 지점을 선택하세요.</p>
+                            </div>
+                            {mapPickTarget && (
+                              <button
+                                type="button"
+                                onClick={cancelMapPointPick}
+                                className="touch-target shrink-0 text-xs font-semibold text-muted-foreground underline underline-offset-2"
+                              >
+                                취소
+                              </button>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              aria-pressed={mapPickTarget === 'start'}
+                              onClick={() => beginMapPointPick('start')}
+                              className={`touch-target min-h-8 rounded-lg border px-2 py-1 text-[11px] font-bold transition ${mapPickTarget === 'start' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/30 bg-background text-primary hover:bg-primary/10'}`}
+                            >
+                              <span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-origin align-middle" aria-hidden="true" />
+                              출발지 선택
+                            </button>
+                            <button
+                              type="button"
+                              aria-pressed={mapPickTarget === 'end'}
+                              onClick={() => beginMapPointPick('end')}
+                              className={`touch-target min-h-8 rounded-lg border px-2 py-1 text-[11px] font-bold transition ${mapPickTarget === 'end' ? 'border-destination bg-destination text-white' : 'border-destination/30 bg-background text-destination hover:bg-destination/10'}`}
+                            >
+                              <span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-destination align-middle" aria-hidden="true" />
+                              도착지 선택
+                            </button>
+                          </div>
+                          {mapPickTarget && (
+                            <p className="mt-2 text-center text-xs font-semibold text-primary" role="status">
+                              지도에서 {mapPickTarget === 'start' ? '출발지' : '도착지'}를 눌러주세요.
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {!isMapFirstMode && (
+                        <MapControls
+                          startRadius={startRadius}
+                          endRadius={endRadius}
+                          onStartRadiusChange={handleStartRadiusChange}
+                          onEndRadiusChange={handleEndRadiusChange}
+                        />
+                      )}
 
                       {mapError && <div className="mb-2 text-sm text-destructive">{mapError}</div>}
                     </div>
@@ -2349,11 +2393,11 @@ export default function Home() {
 
               {/* 지도/검색 탭 전용 검색 버튼 — 검색 후에도 지도 우선 화면에서 경로를 다시 찾을 수 있다 */}
               {isMapFirstMode && (
-                <form onSubmit={submit} className="mt-3">
+                <form onSubmit={submit} className="mt-2">
                   <button
                     type="submit"
                     disabled={uiBlockingLoading}
-                    className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary text-base font-bold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
+                    className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-bold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
                   >
                     {result?.loading && (
                       <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -2545,7 +2589,7 @@ export default function Home() {
                         })
                       }
                     }}
-                    className="touch-target rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground shadow-sm hover:bg-muted"
+                    className="touch-target rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90"
                   >
                     결과목록보기
                   </button>
@@ -2561,7 +2605,7 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={() => setMobileMainView('map')}
-                    className="touch-target rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground shadow-sm hover:bg-muted"
+                    className="touch-target rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90"
                   >
                     재검색
                   </button>
@@ -2684,23 +2728,26 @@ export default function Home() {
         </button>
       )}
 
-      {/* Footer */}
-      <footer className="mt-6 border-t border-slate-200 pt-3 text-sm text-slate-600">
-        <div className="w-full flex flex-col items-center justify-between gap-2 sm:flex-row">
-          <div className="text-center sm:text-left">© {new Date().getFullYear()} zzqyu. All rights reserved.</div>
-          <a
-            href="https://github.com/zzqyu/gg-bus-history"
-            target="_blank"
-            rel="noopener noreferrer"
-            title="GitHub 저장소 열기"
-            className="inline-flex items-center rounded border border-slate-300 px-2 py-1 text-slate-700 hover:bg-slate-50"
-          >
-            <img src="/github-svgrepo-com.svg" alt="GitHub" width={16} height={16} />
-            <span className="hidden ml-1 sm:inline">GitHub</span>
-            <span className="sr-only">GitHub repository</span>
-          </a>
-        </div>
-      </footer>
+      {/* Footer — 지도 우선 모드(첫 화면·재검색 화면)에서는 지도가 화면을 fixed로 덮어서
+          문서 흐름상 콘텐츠가 거의 없어지므로, 이 상태에서는 푸터도 함께 숨긴다. */}
+      {!isMapFirstMode && (
+        <footer className="mt-6 border-t border-slate-200 pt-3 text-sm text-slate-600">
+          <div className="w-full flex flex-col items-center justify-between gap-2 sm:flex-row">
+            <div className="text-center sm:text-left">© {new Date().getFullYear()} zzqyu. All rights reserved.</div>
+            <a
+              href="https://github.com/zzqyu/gg-bus-history"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="GitHub 저장소 열기"
+              className="inline-flex items-center rounded border border-slate-300 px-2 py-1 text-slate-700 hover:bg-slate-50"
+            >
+              <img src="/github-svgrepo-com.svg" alt="GitHub" width={16} height={16} />
+              <span className="hidden ml-1 sm:inline">GitHub</span>
+              <span className="sr-only">GitHub repository</span>
+            </a>
+          </div>
+        </footer>
+      )}
 
       </div>
       </div>

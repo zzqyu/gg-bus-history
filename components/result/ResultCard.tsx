@@ -194,7 +194,6 @@ export default function ResultCard({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             <span className="rounded bg-slate-900 px-1.5 py-0.5 text-[10px] font-bold text-white">결과 {index + 1}</span>
-            <span className="text-[10px] font-semibold text-muted-foreground">{routeBadges.length}개 노선 통합</span>
           </div>
           <div className="mt-1 flex items-baseline gap-2">
             <span className={`text-lg font-extrabold ${routeTypeClass}`}>{displayRouteName}</span>

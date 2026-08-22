@@ -1,5 +1,6 @@
 import React from 'react'
 import { Group } from '../../types'
+import { StationNameTooltip, stationNameClass } from './StationNameTooltip'
 
 interface JourneySummaryProps {
   group: Group
@@ -41,14 +42,11 @@ function WalkLinkIcon({ href, label }: { href?: string; label: string }) {
 }
 
 /**
- * 도보→버스→도보 여정 요약. P3-T11에서 박스형(정류장명 2줄 그리드)으로 만들었다가,
- * P3-T13(카드 압축 라운드)에서 한 줄 텍스트 + 얇은 비례 바로 다시 압축했다.
- *
- * P6-T1(사용자 피드백) — 두 가지를 바꿨다:
- * 1. 순서를 "도보 → 정류장" 순으로(이동 순서와 일치): 출발 구간은 "도보Xm+아이콘 → A정류장",
- *    도착 구간은 "B정류장 → 도보Xm+아이콘"으로 대칭 배치.
- * 2. 각 논리적 덩어리(도보+아이콘, 배지+정류장명, 버스+정거장)를 `whitespace-nowrap` span으로
- *    묶어서, 좁은 화면에서 줄바꿈이 덩어리 중간에서 끊기지 않고 덩어리 단위로만 일어나게 했다.
+ * 도보→버스→도보 여정 요약. 세 덩어리(출발 정류장+도보 / 버스 / 도착 정류장+도보)를
+ * 3열 그리드에 각각 2줄로 배치한다 — 한 줄로는 실제 정류장명 길이 때문에 다 안 들어가고,
+ * 예전처럼 flex-wrap 한 줄에 맡기면 줄바꿈 지점이 데이터마다 들쭉날쭉했다.
+ * 정류장명 축약(10자)·작은 폰트(8자 이상)·툴팁은 통합시간이력(TimetableView)과 동일한
+ * StationNameTooltip을 그대로 재사용해 두 화면에서 동작이 어긋나지 않게 한다.
  */
 export default function JourneySummary({
   group,
@@ -66,37 +64,43 @@ export default function JourneySummary({
 
   return (
     <div className="mt-2">
-      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-4">
-        <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap">
-          <span className="text-muted-foreground">도보{walkStartMin}분</span>
-          <WalkLinkIcon href={group.walk?.startToBoard?.kakaoUrl} label="출발지 → 승차 정류장 도보 경로" />
-        </span>
-        <span className="inline-flex min-w-0 shrink items-center gap-1 whitespace-nowrap">
-          <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-origin px-0.5 text-[9px] font-bold text-white">
-            A{boardStationNumber ?? '-'}
-          </span>
-          <span className="max-w-[8rem] truncate font-semibold text-foreground" title={group.board.stationName}>
-            {group.board.stationName}
-          </span>
-        </span>
-        <span aria-hidden="true" className="text-muted-foreground">·</span>
-        <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap">
-          <span className="font-semibold text-route-line">버스{busDurationText}</span>
-          {orderGapText && <span className="text-muted-foreground">({orderGapText})</span>}
-        </span>
-        <span aria-hidden="true" className="text-muted-foreground">·</span>
-        <span className="inline-flex min-w-0 shrink items-center gap-1 whitespace-nowrap">
-          <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-alight px-0.5 text-[9px] font-bold text-white">
-            B{alightStationNumber ?? '-'}
-          </span>
-          <span className="max-w-[8rem] truncate font-semibold text-foreground" title={group.alight.stationName}>
-            {group.alight.stationName}
-          </span>
-        </span>
-        <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap">
-          <span className="text-muted-foreground">도보{walkEndMin}분</span>
-          <WalkLinkIcon href={group.walk?.alightToEnd?.kakaoUrl} label="하차 정류장 → 목적지 도보 경로" />
-        </span>
+      <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-x-2 text-xs leading-4">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-1">
+            <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-origin px-0.5 text-[9px] font-bold text-white">
+              A{boardStationNumber ?? '-'}
+            </span>
+            <StationNameTooltip
+              name={group.board.stationName}
+              className={`font-semibold text-foreground ${stationNameClass(group.board.stationName)}`}
+            />
+          </div>
+          <div className="mt-0.5 flex items-center gap-1 whitespace-nowrap text-muted-foreground">
+            도보{walkStartMin}분
+            <WalkLinkIcon href={group.walk?.startToBoard?.kakaoUrl} label="출발지 → 승차 정류장 도보 경로" />
+          </div>
+        </div>
+
+        <div className="shrink-0 text-center">
+          {orderGapText && <div className="whitespace-nowrap font-semibold text-foreground">{orderGapText}</div>}
+          <div className="whitespace-nowrap text-muted-foreground">버스{busDurationText}</div>
+        </div>
+
+        <div className="min-w-0 text-right">
+          <div className="flex min-w-0 items-center justify-end gap-1">
+            <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-alight px-0.5 text-[9px] font-bold text-white">
+              B{alightStationNumber ?? '-'}
+            </span>
+            <StationNameTooltip
+              name={group.alight.stationName}
+              className={`font-semibold text-foreground ${stationNameClass(group.alight.stationName)}`}
+            />
+          </div>
+          <div className="mt-0.5 flex items-center justify-end gap-1 whitespace-nowrap text-muted-foreground">
+            도보{walkEndMin}분
+            <WalkLinkIcon href={group.walk?.alightToEnd?.kakaoUrl} label="하차 정류장 → 목적지 도보 경로" />
+          </div>
+        </div>
       </div>
 
       <div className="mt-1 flex h-1 w-full overflow-hidden rounded-full bg-border" aria-hidden="true">
