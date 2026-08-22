@@ -33,7 +33,7 @@ export default function App({ Component, pageProps }: AppProps) {
         <meta property="og:type" content="website" />
         <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
         <meta name="google-site-verification" content="krc5Ql6xLRJcuO1H4KETKxtG1cozEJ6-oE6U9IROdxA" />
-        <meta name="naver-site-verification" content="2e79c240266f4cf80f0120f65f75190c6a45781d" />
+        <meta name="naver-site-verification" content="2ea8a5758222284a6bd9f3cef14aada995a63087" />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#1E3A8A" />
