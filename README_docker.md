@@ -71,17 +71,15 @@ docker compose logs --tail 100 api | grep 'find_routes: pair_sql executed'
 증상:
 - `docker-compose up -d --build api` 시 `KeyError: 'ContainerConfig'`
 
-자동 배포 스크립트(권장):
+자동 배포 스크립트(권장, `docker-compose.prod.yml` 기준 — web/api 모두 처리):
 
 ```bash
-# app.py만 반영
-tools/deploy_api_vps.sh
-
-# app.py + basedata.db 함께 반영
-tools/deploy_api_vps.sh --with-db
+ssh root@<SERVER_IP> "cd ~/gg-bus-history && git pull --ff-only origin master && ./tools/deploy_web.sh"
 ```
 
-회피 절차(API만 수동 실행):
+`tools/deploy_web.sh`는 pull된 커밋 범위를 보고 web/api 중 실제로 바뀐 쪽만 빌드·재기동하고, 마지막에 운영 URL로 헬스체크까지 한다. `basedata.db` 자체는 이 스크립트가 건드리지 않는다 — DB 갱신은 `tools/refresh_basedata.sh`(매일 05:00 systemd 타이머)가 별도로 담당한다.
+
+회피 절차(API만 수동 실행, 스크립트가 실패했을 때의 최후 수단):
 
 ```bash
 # 1) 최신 코드 반영

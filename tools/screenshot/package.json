@@ -1,0 +1,10 @@
+{
+  "name": "bustal-time-screenshot-tool",
+  "version": "1.0.0",
+  "private": true,
+  "description": "UI 변경 검증용 범용 Playwright 스크린샷 스크립트 (에이전트 무관하게 사용)",
+  "type": "module",
+  "dependencies": {
+    "playwright": "^1.62.1"
+  }
+}
