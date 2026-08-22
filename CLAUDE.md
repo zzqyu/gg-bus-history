@@ -42,6 +42,11 @@ python import_to_sqlite.py --dir basedata --db basedata.db
 ```
 열은 `|`로 구분되고 행은 `^`로 구분됩니다. 스크립트는 파일 이름 끝의 `yyyymmdd*` 버전 접미사를 제거해 테이블 이름을 생성합니다(예: `route20260802V2.txt` → 테이블 `route`). `--fetch-baseinfo` 자동 다운로드 흐름과 `--rename-db-tables`에 대해서는 `README_import_sqlite.md`를 참고하세요.
 
+운영 서버(VPS) 운용 스크립트(`tools/`):
+- `tools/deploy_web.sh` — 운영 서버에서 master를 pull 받아 web/api 중 실제로 바뀐 쪽만 재빌드·재기동하고 헬스체크까지 한다. 로컬에서 push한 뒤 `ssh root@bustal-time.kro.kr -p 2222 "cd ~/gg-bus-history && ./tools/deploy_web.sh"`로 배포한다. 자세한 배경은 `README_docker.md` 참고.
+- `tools/refresh_basedata.sh` — `basedata.db`를 정부 공공데이터 최신본으로 매일 자동 갱신한다. 새 파일에 임포트 후 핵심 테이블 검증을 통과해야만 교체하며, 운영 서버에 systemd 타이머(`tools/systemd/bustal-refresh.timer`, 매일 05:00 KST)로 등록돼 있다. 자세한 배경은 `README_import_sqlite.md` 참고.
+- `tools/screenshot/capture.mjs` — dev 서버 화면을 Playwright로 캡처해 UI 변경을 눈으로 확인하는 범용 스크립트. Claude 전용 스킬이 아니라 순수 node 스크립트라 다른 에이전트(Codex 등)도 그대로 쓸 수 있다. 최초 1회 `cd tools/screenshot && npm install && npx playwright install chromium` 필요 — 사용법은 `tools/screenshot/README.md` 참고.
+
 ## 아키텍처
 
 **프론트엔드 → API 프록시 → FastAPI → SQLite** 구조이며, 브라우저가 FastAPI를 직접 호출하지 않습니다.
@@ -60,6 +65,6 @@ python import_to_sqlite.py --dir basedata --db basedata.db
 
 **데이터 모델**(`basedata/*.txt`에서 가져온 SQLite 테이블): `station`, `route`, `routestation`(노선 ↔ 정류장 순서), `routeline`(노선별 폴리라인 형상), `vehicle`, `area`. 가져온 모든 열의 타입은 TEXT이며, `find_routes` 및 관련 함수가 쿼리 시점에 Python/SQL에서 숫자 및 지리 연산을 수행합니다.
 
-**배포**: `Caddyfile.dev`는 `:3000`에서 TLS를 내부적으로 종료합니다. `Caddyfile.prod`는 80/443 포트에서 `bustal-time.kro.kr`을 제공하고 `web:3000`으로 리버스 프록시합니다. 운영 환경에서 `api` 컨테이너는 호스트 포트를 게시하지 않으며 Docker 네트워크를 통해 `web`에서만 접근할 수 있습니다. `docker-compose.yml`(`.dev`/`.prod`가 아닌 일반 파일)은 `README_docker.md`의 VPS 배포 흐름에서 직접 사용되며 자체 웹 포트 환경 변수(`WEB_PORT`, 기본값 3000)를 가집니다. Make로 구동하는 개발/운영 Compose 파일과 혼동하지 마세요.
+**배포**: `Caddyfile.dev`는 `:3000`에서 TLS를 내부적으로 종료합니다. `Caddyfile.prod`는 80/443 포트에서 `bustal-time.kro.kr`을 제공하고 `web:3000`으로 리버스 프록시합니다. 운영 환경에서 `api` 컨테이너는 호스트 포트를 게시하지 않으며 Docker 네트워크를 통해 `web`에서만 접근할 수 있습니다. `docker-compose.yml`(`.dev`/`.prod`가 아닌 일반 파일)은 `README_docker.md`의 VPS 배포 흐름에서 직접 사용되며 자체 웹 포트 환경 변수(`WEB_PORT`, 기본값 3000)를 가집니다. Make로 구동하는 개발/운영 Compose 파일과 혼동하지 마세요. 운영 서버 자체는 `docker-compose.prod.yml`로 떠 있으며, 코드 배포는 `tools/deploy_web.sh`가, `basedata.db` 일일 갱신은 `tools/refresh_basedata.sh`(systemd 타이머)가 담당합니다.
 
 필수 환경 변수(`.env.local`, 커밋하지 않음): `NEXT_PUBLIC_KAKAO_MAP_API_KEY`, `NEXT_PUBLIC_KAKAO_JS_KEY`, `NEXT_PUBLIC_KAKAO_SHARE_TEMPLATE_ID`(Kakao Maps SDK 및 공유 기능), `BASEINFO_SERVICE_KEY`(`api/app.py`와 `import_to_sqlite.py --fetch-baseinfo`가 서버 측에서 사용하는 정부 공공 API 키).
