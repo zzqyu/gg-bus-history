@@ -1,11 +1,23 @@
 import type { AppProps } from 'next/app'
 import Head from 'next/head'
 import { useEffect } from 'react'
+import { Noto_Sans_KR } from 'next/font/google'
 import '../styles/globals.css'
 import ErrorBoundary from '../components/ErrorBoundary'
 import { Toaster } from '../components/ui/sonner'
 import { SITE_DESCRIPTION, SITE_TITLE, SITE_URL } from '../utils/site'
 import { useRouter } from 'next/router'
+
+// 시스템 폰트에 기대면 한글 글리프가 기기·브라우저마다(맥 Chrome vs iOS Safari 등) 다른
+// 폰트로 대체되는 문제가 있었다. Noto Sans KR을 next/font로 빌드 시점에 자체 호스팅해
+// --font-sans 값을 고정하면, 이 값을 쓰는 Tailwind font-sans 유틸이 모든 기기에서
+// 항상 같은 폰트를 가리키게 된다.
+const notoSansKR = Noto_Sans_KR({
+  weight: ['400', '500', '700', '900'],
+  subsets: ['latin'],
+  variable: '--font-sans',
+  display: 'swap',
+})
 
 export default function App({ Component, pageProps }: AppProps) {
   const router = useRouter()
@@ -42,10 +54,12 @@ export default function App({ Component, pageProps }: AppProps) {
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="버스탈시간" />
       </Head>
-      <ErrorBoundary>
-        <Component {...pageProps} />
-      </ErrorBoundary>
-      <Toaster position="top-center" />
+      <div className={notoSansKR.variable}>
+        <ErrorBoundary>
+          <Component {...pageProps} />
+        </ErrorBoundary>
+        <Toaster position="top-center" />
+      </div>
     </>
   )
 }

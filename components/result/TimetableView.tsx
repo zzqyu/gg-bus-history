@@ -50,6 +50,10 @@ export interface TimetableViewProps {
    * 바깥에 이미 동일한 역할의 날짜 컨트롤(DaySwitcher)이 있을 때 중복 노출을 막는 용도.
    * 기본값 false — /preview 등 기존 사용처는 그대로 내부 컨트롤을 계속 보여준다. */
   hideDateBasisControl?: boolean
+  /** 이 값(px)만큼 아래로 sticky 헤더를 고정한다. pages/index.tsx처럼 이 컴포넌트 위에
+   * 이미 sticky한 앱 헤더/탭 바가 있을 때, 그 아래에서 겹치지 않게 자리를 맞추는 용도.
+   * 기본값 0 — 그런 상위 sticky 요소가 없는 사용처는 뷰포트 맨 위에 붙는다. */
+  stickyTop?: number
 }
 
 export function formatDateLabel(value: string): string {
@@ -286,7 +290,7 @@ export function TimetableRow({
   )
 }
 
-export default function TimetableView({ combined, sday, onChange, realtimeByStationId = {}, hideDateBasisControl = false }: TimetableViewProps) {
+export default function TimetableView({ combined, sday, onChange, realtimeByStationId = {}, hideDateBasisControl = false, stickyTop = 0 }: TimetableViewProps) {
   const entries = Array.isArray(combined) ? combined : []
   const [selectedRouteIdState, setSelectedRouteId] = React.useState<string | null>(null)
 
@@ -388,10 +392,12 @@ export default function TimetableView({ combined, sday, onChange, realtimeByStat
     <div className="min-w-0 space-y-5">
       {!hideDateBasisControl && <DateBasisControl value={sday} onChange={onChange} />}
 
-      <section
-        className="relative min-w-0 overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
-        aria-labelledby="integrated-history-title"
-      >
+      <section className="relative min-w-0" aria-labelledby="integrated-history-title">
+        {/* 바깥쪽은 각진 완전 불투명 사각형 — sticky로 고정됐을 때 이 밑을 지나가는
+            행의 각진 모서리·테두리가 안쪽 카드의 둥근 모서리 바깥(투명하게 잘리는 영역)으로
+            비쳐 보이지 않게 확실히 가린다. 실제 카드처럼 보이는 둥근 테두리는 안쪽 div가 담당. */}
+        <div className="sticky z-10 bg-background" style={{ top: stickyTop }}>
+        <div className="overflow-hidden rounded-t-2xl border border-b-0 border-border bg-card shadow-sm">
         <div className="border-b border-border p-4 sm:p-6">
           <div className="flex items-center justify-between gap-3">
             <p id="integrated-history-title" className="text-sm font-bold text-primary">통합시간이력</p>
@@ -408,9 +414,6 @@ export default function TimetableView({ combined, sday, onChange, realtimeByStat
               <GlossarySheet />
             </div>
           </div>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            이 구간의 모든 노선 운행 이력을 출발시각순으로 모아 탑승·하차 예상시각을 보여줍니다.
-          </p>
 
           <div
             className="mt-3 flex max-w-full items-center gap-1.5 overflow-x-auto overflow-y-hidden pb-1"
@@ -454,7 +457,9 @@ export default function TimetableView({ combined, sday, onChange, realtimeByStat
           <span>노선 · 탑승 정류장</span>
           <span className="col-start-3 whitespace-nowrap">목적지 하차 예상</span>
         </div>
-
+        </div>
+        </div>
+        <div className="overflow-hidden rounded-b-2xl border border-t-0 border-border bg-card shadow-sm">
         {filtered.length > 0 ? (
           <ol aria-label="통합 시간이력 목록">
             {filtered.map((entry, index) => {
@@ -488,6 +493,7 @@ export default function TimetableView({ combined, sday, onChange, realtimeByStat
 
         <div className="border-t border-border bg-muted/30 px-4 py-3 text-xs leading-5 text-muted-foreground sm:px-6">
           총 {filtered.length.toLocaleString()}건 · 과거 실제 운행 기록을 기준으로 하며, 교통 상황과 임시편성에 따라 실제 운행은 달라질 수 있습니다.
+        </div>
         </div>
       </section>
     </div>

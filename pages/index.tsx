@@ -90,6 +90,7 @@ export default function Home() {
   // 내리기 위해 헤더의 실제 높이를 잰다. 고정 숫자를 쓰지 않는 이유는 P5-T1에서 이미 겪은
   // 문제(고정 숫자 49px가 툴바 줄바꿈 때문에 틀렸던 것) 때문이다.
   const [appHeaderHeight, setAppHeaderHeight] = useState(0)
+  const [resultBarBottom, setResultBarBottom] = useState(0)
   // 검색 전 하단 플로팅 패널에서 "지도에서 직접 조정"(반경 설정)을 펼쳤는지 여부
   const [preSearchPanelOpen, setPreSearchPanelOpen] = useState(false)
   const [showScrollTop, setShowScrollTop] = useState(false)
@@ -1974,20 +1975,31 @@ export default function Home() {
   // 검색 후엔 항상 false로 유지되고 기존 카드형 레이아웃 그대로 나온다.
   const isMapFirstMode = !hasAnyResultState || (mobileMainView === 'map' && !focusedCardOnly)
 
-  // 헤더 + (있다면) 모바일 탭 바까지 합친 실제 높이를 재서 지도 영역의 top 값으로 쓴다.
-  // 탭 바는 hasAnyResultState일 때만 렌더되고 데스크톱(md 이상)에서는 md:hidden으로 숨는다.
+  // 헤더 + "결과 카드/통합 시간이력" 전환 탭·기준일 바(#result-mode-switcher)의 실제 높이를
+  // 재서 지도 영역/하위 sticky 헤더의 top 값으로 쓴다. ResizeObserver로 시도했으나, 이
+  // 요소가 React 재조정 과정에서 같은 id로 재마운트(dependency 배열이 못 잡아내는 시점에)될
+  // 수 있어서 옵저버가 옛 노드에 매달린 채 갱신을 놓치는 경우가 있었다(next/font의 폰트
+  // 스왑 타이밍과 겹치면 재현됨 — 스왑 전 높이로 값이 고정돼 그 아래 sticky 헤더 사이에
+  // 빈 틈이 생기고 그 틈으로 스크롤 중인 행이 비쳐 보였다). 짧은 주기 폴링으로 바꿔서
+  // 어떤 이유로 높이가 바뀌든(폰트 스왑, 재마운트, 필터 칩 줄바꿈 등) 놓치지 않게 한다.
   useEffect(() => {
-    function updateHeaderHeight() {
+    function measure() {
       const header = document.getElementById('app-header')
-      const tabBar = document.getElementById('mobile-view-tabs')
+      const resultBar = document.getElementById('result-mode-switcher')
       const headerBottom = header ? header.getBoundingClientRect().bottom : 0
-      const tabBarBottom = tabBar && tabBar.offsetParent !== null ? tabBar.getBoundingClientRect().bottom : 0
-      setAppHeaderHeight(Math.max(headerBottom, tabBarBottom))
+      setAppHeaderHeight(headerBottom)
+      setResultBarBottom(resultBar ? resultBar.getBoundingClientRect().bottom : headerBottom)
     }
-    updateHeaderHeight()
-    window.addEventListener('resize', updateHeaderHeight)
-    return () => window.removeEventListener('resize', updateHeaderHeight)
-  }, [hasAnyResultState, mobileMainView])
+
+    measure()
+    window.addEventListener('resize', measure)
+    const interval = setInterval(measure, 250)
+
+    return () => {
+      window.removeEventListener('resize', measure)
+      clearInterval(interval)
+    }
+  }, [hasAnyResultState, mobileMainView, focusedCardOnly, showAllGroupsTimetable])
 
   // 검색 전 ↔ 검색 후 전환 시 지도 컨테이너 크기가 크게 바뀐다(화면 전체 ↔ 360px 카드).
   // 카카오 지도는 컨테이너 크기가 바뀌면 relayout()을 호출해줘야 타일이 깨지지 않는다.
@@ -2488,7 +2500,7 @@ export default function Home() {
           {hasSearchResult && (
             <div className={`mt-5 ${(showAllGroupsTimetable && !showGroupList) || focusedCardOnly ? 'safe-area-content-bottom' : ''}`}>
               {!focusedCardOnly && (
-                <>
+                <div id="result-mode-switcher" className="sticky z-[5] -mx-2 bg-background px-2 pb-1 pt-1 sm:mx-0 sm:px-0" style={{ top: appHeaderHeight }}>
                   <div className="mb-3 grid w-full grid-cols-2 rounded-xl border border-border bg-card p-1" aria-label="결과 화면 전환">
                     <button
                       type="button"
@@ -2525,7 +2537,19 @@ export default function Home() {
                   <div className="mb-3">
                     <DaySwitcher value={sday} onChange={handleSdayChange} />
                   </div>
-                </>
+                </div>
+              )}
+
+              {/* 첫 화면의 안내 배너와 같은 스타일의 도움말 카드 — 탭마다 다른 문구를 보여준다.
+                  통합시간이력 문구는 TimetableView 내부에 있던 동일 문구를 여기로 옮긴 것이다. */}
+              {!focusedCardOnly && (
+                <div className="mb-3 rounded-2xl border border-badge-realtime-border bg-badge-realtime-bg p-3 text-badge-realtime-fg">
+                  <p className="text-xs font-bold leading-5">
+                    {showAllGroupsTimetable
+                      ? '이 구간의 모든 노선 운행 이력을 출발시각순으로 모아 탑승·하차 예상시각을 보여줍니다.'
+                      : '출발지-도착지 구간에 이용 가능한 모든 노선을 한 화면에 모았어요. 각 결과에서 승차·하차 예상 시각과 소요시간을 확인해보세요.'}
+                  </p>
+                </div>
               )}
 
               {/* 통합 시간이력 — DaySwitcher와 동일한 기준일 전환 계약을 자체적으로 내장하고 있다 */}
@@ -2556,6 +2580,7 @@ export default function Home() {
                     onChange={handleSdayChange}
                     realtimeByStationId={realtimeByStationId}
                     hideDateBasisControl
+                    stickyTop={resultBarBottom}
                   />
                 )
               )}

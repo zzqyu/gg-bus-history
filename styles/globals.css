@@ -144,6 +144,10 @@ body {
 }
 
 :root {
+  /* next/font(Noto Sans KR)가 _app.tsx의 래퍼 div에서 이 값을 덮어쓴다. 이 값은
+     next/font가 아직 적용되지 않은 극히 드문 경우를 위한 안전망일 뿐이다. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", Roboto,
+    "Noto Sans KR", "Malgun Gothic", "Helvetica Neue", Arial, sans-serif;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
